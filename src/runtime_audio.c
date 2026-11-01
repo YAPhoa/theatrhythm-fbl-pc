@@ -335,8 +335,13 @@ static ABI int32_t audio_close(int32_t handle) {
     pthread_mutex_unlock(&table_lock);
     return p ? 0 : error;
 }
-/* `pace`: wait for this port's next period. sceAudioOutOutputs waits once for all its ports. */
-static int32_t output_port(int32_t handle, const void *data, int pace) {
+/* Queues one buffer. `pace`: this call sets `*wake`, the end of the port's next period, which the
+   caller sleeps until once the port is unlocked (sceAudioOutOutputs waits once for all its ports).
+   The sleep happens after the port is released and nothing touches the port afterwards: a thread
+   feeding the port back to back would otherwise hold the lock nearly all the time, and
+   sceAudioOutSetVolume on that port (Unity's video player sets the movie's volume when it becomes
+   prepared) could wait seconds to minutes, keeping the opening movie black. */
+static int32_t output_port(int32_t handle, const void *data, int pace, uint64_t *wake) {
     int32_t error=0;
     pthread_mutex_lock(&table_lock);
     Port *p=port_of(handle,&error);
@@ -372,7 +377,7 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
         if (pace) {
             uint64_t now=now_ns();
             if (!p->next_deadline_ns || now>p->next_deadline_ns+8*period) p->next_deadline_ns=now; /* start or stall: restart cadence */
-            else sleep_until(p->next_deadline_ns);
+            else *wake=p->next_deadline_ns;
             p->next_deadline_ns+=period;
         }
         if (p->stream) {
@@ -394,19 +399,27 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
         }
         ++buffers_out;
     }
-    p->last_output_us=now_ns()/1000;
+    uint64_t now=now_ns();
+    p->last_output_us=(*wake>now ? *wake : now)/1000; /* when the call returns */
     pthread_mutex_unlock(&p->lock);
     return data ? (int32_t)samples : 0;
 }
-static ABI int32_t audio_output(int32_t handle, const void *data) { return output_port(handle,data,1); }
+static ABI int32_t audio_output(int32_t handle, const void *data) {
+    uint64_t wake=0;
+    int32_t r=output_port(handle,data,1,&wake);
+    if (wake) sleep_until(wake);
+    return r;
+}
 typedef struct { int32_t handle; const void *data; } OutputParam;
 static ABI int32_t audio_outputs(const OutputParam *params, uint32_t count) {
     if (!params) return ERR_INVALID_POINTER;
     if (!count || count>PORTS) return ERR_PORT_FULL;
     int32_t result=0;
+    uint64_t wake=0;
     /* One period per call for all ports (FMOD feeds main and BGM together): pacing every
-       port would halve the rate and starve both. */
-    for (uint32_t i=0;i<count;++i) { int32_t r=output_port(params[i].handle,params[i].data,i==0); if (r<0) return r; result=r; }
+       port would halve the rate and starve both. All are queued before the wait, keeping them in step. */
+    for (uint32_t i=0;i<count && result>=0;++i) result=output_port(params[i].handle,params[i].data,i==0,&wake);
+    if (wake) sleep_until(wake);
     return result;
 }
 static ABI int32_t audio_volume(int32_t handle, int32_t flags, const int32_t *volume) {

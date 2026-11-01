@@ -262,6 +262,40 @@ static void test_multiple_ports(void) {
     printf("Multiple active audio ports passed!\n");
 }
 
+static int32_t feed_handle;
+static void *feed_port(void *arg) {
+    (void)arg;
+    static float buffer[2048 * 2];
+    for (int i = 0; i < 10; ++i) assert(audio_output(feed_handle, buffer) == 2048 * 2);
+    return NULL;
+}
+
+static void test_volume_while_feeding(void) {
+    printf("Testing volume changes while another thread feeds the port...\n");
+    /* A thread feeding a port back to back (the game's movie audio) must not keep the port locked
+       for its period: sceAudioOutSetVolume from another thread (Unity's video player) gets through. */
+    test_open_stream = mock_fail_all;
+    feed_handle = audio_open(0, 0, 0, 2048, 48000, 4); /* 2048 frames: a 42.7 ms period */
+    assert(feed_handle > 0);
+    pthread_t feeder;
+    assert(pthread_create(&feeder, NULL, feed_port, NULL) == 0);
+    int32_t vol[8] = {16384, 16384};
+    uint64_t worst = 0;
+    for (int i = 0; i < 40; ++i) {
+        uint64_t start = now_ns();
+        assert(audio_volume(feed_handle, 3, vol) == 0);
+        uint64_t took = now_ns() - start;
+        if (took > worst) worst = took;
+        sleep_until(now_ns() + 5000000u);
+    }
+    assert(pthread_join(feeder, NULL) == 0);
+    printf("  longest sceAudioOutSetVolume: %.2f ms\n", worst / 1e6);
+    assert(worst < 10000000u);
+    assert(audio_close(feed_handle) == 0);
+    test_open_stream = NULL;
+    printf("Volume while feeding passed!\n");
+}
+
 /* The level a port sends, read back from its THEATRHYTHM_AUDIO_DUMP file. */
 static float dumped_level(int32_t handle, int channels) {
     float buffer[256 * 2];
@@ -302,6 +336,7 @@ int main(void) {
     test_wasapi_and_directsound_both_fail_timer_sink();
 #endif
     test_complete_failure_timer_sink();
+    test_volume_while_feeding();
     test_pad_speaker_attenuated();
 
     printf("\naudio tests ok\n");
