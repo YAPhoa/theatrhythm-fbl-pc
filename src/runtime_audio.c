@@ -370,10 +370,15 @@ static int32_t output_port(int32_t handle, const void *data, int pace) {
             }
         }
         if (pace) {
-            uint64_t now=now_ns();
+            uint64_t now=now_ns(), deadline=0;
             if (!p->next_deadline_ns || now>p->next_deadline_ns+8*period) p->next_deadline_ns=now; /* start or stall: restart cadence */
-            else sleep_until(p->next_deadline_ns);
+            else deadline=p->next_deadline_ns;
             p->next_deadline_ns+=period;
+            /* Sleep without the port lock. A thread feeding the port back to back took it again
+               right after each period, so sceAudioOutSetVolume on that port (Unity's video player
+               sets the movie's volume when it becomes prepared) could wait seconds to minutes:
+               the opening movie stayed black until it got through. */
+            if (deadline) { pthread_mutex_unlock(&p->lock); sleep_until(deadline); pthread_mutex_lock(&p->lock); }
         }
         if (p->stream) {
             /* The device drains the queue in quanta (21 ms on PipeWire), so the level
