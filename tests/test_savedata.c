@@ -2,7 +2,11 @@
 #undef NDEBUG /* the checks are asserts; release builds define NDEBUG */
 #include "../src/runtime_savedata.c"
 #include <assert.h>
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <utime.h>
+#endif
 
 static char user_dir[256];
 const char *runtime_file_user_dir(void) { return user_dir; }
@@ -12,11 +16,19 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
 
 static void touch(const char *path, time_t when) {
     FILE *f=fopen(path,"wb"); assert(f); fputs("x",f); fclose(f);
+#ifdef _WIN32
+    HANDLE h=CreateFileA(path,FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,0,NULL);
+    assert(h!=INVALID_HANDLE_VALUE);
+    uint64_t ft=((uint64_t)when+11644473600ULL)*10000000ULL;
+    FILETIME filetime={(DWORD)ft,(DWORD)(ft>>32)};
+    assert(SetFileTime(h,NULL,NULL,&filetime));
+    CloseHandle(h);
+#else
     struct utimbuf times={when,when}; assert(!utime(path,&times));
+#endif
 }
 
 #ifdef _WIN32
-#include <windows.h>
 static int touch_dir(const char *path, time_t when) {
     HANDLE h=CreateFileA(path,FILE_WRITE_ATTRIBUTES,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,NULL,OPEN_EXISTING,FILE_FLAG_BACKUP_SEMANTICS,NULL);
     if (h==INVALID_HANDLE_VALUE) return -1;
@@ -49,30 +61,32 @@ int main(void) {
     /* A save's time is the newest of its files and its param.bin, whatever the folder's own time. */
     char base[600], path[800];
     root(1,NULL,base,sizeof(base));
-    snprintf(path,sizeof(path),"%s/AUTOSAVE.sce_sys/param.bin",base); touch(path,1000);
-    snprintf(path,sizeof(path),"%s/SAVE0001.sce_sys/param.bin",base); touch(path,1500);
-    snprintf(path,sizeof(path),"%s/SAVE0001",base); assert(!touch_dir(path,1000));
-    snprintf(path,sizeof(path),"%s/AUTOSAVE/data.bin",base); touch(path,2000);
-    snprintf(path,sizeof(path),"%s/AUTOSAVE",base); assert(!touch_dir(path,1000));
-    assert(runtime_savedata_mtime(1,"AUTOSAVE")==2000 && runtime_savedata_mtime(1,"SAVE0001")==1500);
+    const time_t savedata_time=time(NULL)-10000;
+    snprintf(path,sizeof(path),"%s/AUTOSAVE.sce_sys/param.bin",base); touch(path,savedata_time);
+    snprintf(path,sizeof(path),"%s/SAVE0001.sce_sys/param.bin",base); touch(path,savedata_time+500);
+    snprintf(path,sizeof(path),"%s/SAVE0001",base); assert(!touch_dir(path,savedata_time));
+    snprintf(path,sizeof(path),"%s/AUTOSAVE/data.bin",base); touch(path,savedata_time+1000);
+    snprintf(path,sizeof(path),"%s/AUTOSAVE",base); assert(!touch_dir(path,savedata_time));
+    assert(runtime_savedata_mtime(1,"AUTOSAVE")==savedata_time+1000 &&
+           runtime_savedata_mtime(1,"SAVE0001")==savedata_time+500);
     assert(runtime_savedata_mtime(1,"MISSING")==0 && runtime_savedata_mtime(1,"../x")==0);
 
     /* A directory touched with a newer timestamp must NOT override the files inside. */
-    snprintf(path,sizeof(path),"%s/SAVE0001",base); assert(!touch_dir(path,5000));
-    assert(runtime_savedata_mtime(1,"SAVE0001")==1500);
+    snprintf(path,sizeof(path),"%s/SAVE0001",base); assert(!touch_dir(path,savedata_time+4000));
+    assert(runtime_savedata_mtime(1,"SAVE0001")==savedata_time+500);
 
     /* An empty save directory without any files or param.bin returns 0 even if directory mtime > 0. */
     snprintf(path,sizeof(path),"%s/SAVEEMPTY",base);
     assert(!make_dirs(path));
-    assert(!touch_dir(path,3000));
+    assert(!touch_dir(path,savedata_time+3000));
     assert(runtime_savedata_mtime(1,"SAVEEMPTY")==0);
 
 #ifndef _WIN32
     /* Symlinks pointing outside the save directory are not followed. */
-    snprintf(path,sizeof(path),"%s/external.bin",user_dir); touch(path,99999);
+    snprintf(path,sizeof(path),"%s/external.bin",user_dir); touch(path,savedata_time+99999);
     char link_path[800]; snprintf(link_path,sizeof(link_path),"%s/SAVE0001/symlink.bin",base);
     assert(!symlink(path,link_path));
-    assert(runtime_savedata_mtime(1,"SAVE0001")==1500);
+    assert(runtime_savedata_mtime(1,"SAVE0001")==savedata_time+500);
     assert(!unlink(link_path));
 #endif
 
@@ -80,7 +94,7 @@ int main(void) {
     BackupRequest request={.user=1,.dir=&manual};
     Param titled={.title="Chapter 1"};
     snprintf(path,sizeof(path),"%s/SAVE0001.sce_sys",base); write_param(path,&titled);
-    snprintf(path,sizeof(path),"%s/SAVE0001/slot.bin",base); touch(path,1700);
+    snprintf(path,sizeof(path),"%s/SAVE0001/slot.bin",base); touch(path,savedata_time+1700);
     assert(save_backup(&request)==0);
     float done=0; Event event;
     assert(save_progress(&done)==0 && done==1.0f && save_event(NULL,&event)==0 && event.type==2 && !strcmp(event.dir.data,"SAVE0001"));
