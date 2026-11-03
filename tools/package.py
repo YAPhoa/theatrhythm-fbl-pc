@@ -68,7 +68,8 @@ Release {release}
 You need a decrypted dump of your own copy of the game (PS4, version 1.00): the folder with
 eboot.bin, sce_module, sce_sys and Media. No game files are included.
 
-1. Run theatrhythm-setup.exe. Pick the game folder and where your saves go, then press Install.
+1. Run theatrhythm-setup.exe. Pick the game folder and where your saves go. Keep "Skip splash-logo
+   sequence" checked to start at the main menu, or uncheck it to show the logos, then press Install.
    It prepares the game from your dump (a few seconds) and offers a desktop shortcut.
 2. Press Play Game, or later start theatrhythm-fbl.exe or the shortcut.
 
@@ -90,8 +91,9 @@ You need a decrypted dump of your own copy of the game (PS4, version 1.00): the 
 eboot.bin, sce_module, sce_sys and Media. No game files are included.
 
 1. Run theatrhythm-setup (from a file manager, or ./theatrhythm-setup in a terminal). Pick the
-   game folder and where your saves go. It prepares the game from your dump (a few seconds) and
-   offers an entry in your application menu (Steam's "Add a Non-Steam Game" lists it too).
+   game folder and where your saves go. The setup asks whether to skip the splash-logo sequence
+   (yes by default). It prepares the game from your dump (a few seconds) and offers an entry in your
+   application menu (Steam's "Add a Non-Steam Game" lists it too).
    From a terminal it also takes: ./theatrhythm-setup --game <dump> [--save <folder>]
 2. Start the game from the menu entry, or run ./theatrhythm-fbl.
 

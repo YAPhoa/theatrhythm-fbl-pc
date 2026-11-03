@@ -19,6 +19,8 @@ dump of your own copy of the game (PS4, version 1.00).
 - **PC display settings:** windowed, borderless or fullscreen, at your desktop's resolution.
 - **Keyboard and controller:** Xbox-style mapping for controllers, with the game's button hints
   redrawn for keyboard and Xbox. DualSense works too.
+- **Startup skip:** the setup option skips the splash-logo sequence (checked by default); the
+  opening-movie skip remains enabled either way.
 - **Easy setup:** point the installer at your dump, and it can add a desktop shortcut (on Linux,
   an application menu entry).
 
@@ -78,8 +80,9 @@ Linux PC with its own GPU or on a Steam Deck. If you try it there, please report
 1. Unzip the release anywhere, for example `C:\Games\Theatrhythm`.
 2. Run `theatrhythm-setup.exe`.
 3. Choose your **game folder** (the dump) and a **save folder** (by default `save` inside the
-   release folder), then press **Install**. Setup prepares the game from your dump in a few
-   seconds and offers a desktop shortcut. Your dump is only read, never changed.
+   release folder). Keep **Skip splash-logo sequence** checked to start at the main menu, or
+   uncheck it to show the logos, then press **Install**. Setup prepares the game from your dump in a
+   few seconds and offers a desktop shortcut. Your dump is only read, never changed.
 4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut.
 
 Run `theatrhythm-setup.exe` again any time to change the game or save folder. It offers to copy your

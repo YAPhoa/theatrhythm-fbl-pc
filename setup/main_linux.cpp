@@ -9,7 +9,7 @@
 // With arguments it installs from the command line:
 //
 //     theatrhythm-setup --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
-//                       [--shortcut <folder>|desktop|menu]
+//                       [--no-splash-skip] [--shortcut <folder>|desktop|menu]
 
 #include "setup.h"
 
@@ -50,10 +50,11 @@ void err(const std::wstring& s) {
 
 constexpr wchar_t kUsage[] =
     L"usage: theatrhythm-setup --game <dump or eboot.bin> [--save <folder>] [--copy-saves]\n"
-    L"                         [--shortcut <folder>|desktop|menu]\n"
+    L"                         [--no-splash-skip] [--shortcut <folder>|desktop|menu]\n"
     L"  --game        the decrypted game dump (eboot.bin, sce_module, sce_sys, Media); only ever read\n"
     L"  --save        where your saves go (default: the one paths.ini names, else save/ here)\n"
     L"  --copy-saves  when --save changes, copy the saves from the old save folder\n"
+    L"  --no-splash-skip  keep the startup-logo sequence (default: skip it)\n"
     L"  --shortcut    also write the game's desktop entry into this folder, onto the Desktop or into\n"
     L"                the application menu\n"
     L"Sets up the folder this program is in. With no arguments, asks for the folders.";
@@ -68,7 +69,7 @@ fs::path shortcut_folder(const std::wstring& where) {
 
 int run_cli(const std::vector<std::wstring>& args) {
     std::wstring game, save, shortcut;
-    bool copy_saves = false;
+    bool copy_saves = false, skip_splash_logo = true;
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         std::wstring* value = a == L"--game"       ? &game
@@ -79,6 +80,8 @@ int run_cli(const std::vector<std::wstring>& args) {
             *value = args[++i];
         } else if (a == L"--copy-saves") {
             copy_saves = true;
+        } else if (a == L"--no-splash-skip") {
+            skip_splash_logo = false;
         } else {
             err(a == L"--help" || a == L"-h" ? kUsage : std::wstring(kUsage) + L"\n\nunexpected: " + a);
             return 2;
@@ -94,6 +97,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         opt.game = setup::path_of(game);
         auto old = setup::read_paths(opt.root);
         opt.save = !save.empty() ? setup::path_of(save) : old ? old->save : setup::default_save();
+        opt.skip_splash_logo = skip_splash_logo;
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
         fs::path exe = setup::install(opt, out);
@@ -289,10 +293,20 @@ int run_asking(Asker& ask) {
         return 1;
     }
 
+    const bool current_splash_skip = paths ? paths->skip_splash_logo : true;
+    const std::vector<std::wstring> splash_answers =
+        current_splash_skip ? std::vector<std::wstring>{L"Yes, skip the splash logos", L"No, show the splash logos", L"Cancel"}
+                            : std::vector<std::wstring>{L"No, show the splash logos", L"Yes, skip the splash logos", L"Cancel"};
+    int splash_choice = ask.choose(L"Skip the splash-logo sequence and go straight to the main menu?",
+                                   splash_answers);
+    if (splash_choice < 0 || splash_choice == 2)
+        return 1;
+
     setup::Options opt;
     opt.root = root;
     opt.game = *game;
     opt.save = save;
+    opt.skip_splash_logo = current_splash_skip ? splash_choice == 0 : splash_choice == 1;
     try {
         if (auto old = saves_to_move(opt.root, opt.save)) {
             int answer = ask.choose(L"Copy your saves to the new save folder?\n\nFrom: " + setup::text(*old) +

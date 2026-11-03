@@ -18,7 +18,11 @@ The pipeline (`run.py`):
 1. `scripts/prepare.py` strips the SELF wrapper from `eboot.bin` (the dump must be decrypted).
 2. `scripts/link_modules.py` links the modules the eboot needs at boot into one image:
    `libc.prx`, `libSceFios2.prx` (from `sce_module`), then `PS4Util.prx` and
-   `Il2CppUserAssemblies.prx` (from `Media/Modules`; the latter is the game's IL2CPP code).
+   `Il2CppUserAssemblies.prx` (from `Media/Modules`; the latter is the game's IL2CPP code). For
+   the supported game revision, it optionally redirects the startup-logo scene ID to the main-menu
+   ID and replaces the opening movie's play call with the game's normal end-of-movie transition.
+   The setup option is enabled by default; `--no-splash-skip` keeps the logos while leaving the
+   opening-movie skip enabled.
    Symbols match by NID, never by name.
 3. `theatrhythm-fbl` maps the image, resolves every import against the C runtime (by symbol
    name, from `src/import_names.inc`) or the GPU core (by NID), runs each module's initializer

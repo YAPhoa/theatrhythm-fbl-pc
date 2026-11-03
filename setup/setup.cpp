@@ -280,7 +280,7 @@ std::wstring strip(const std::wstring& s) {
     return s.substr(a, s.find_last_not_of(ws) - a + 1);
 }
 
-void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save) {
+void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save, bool skip_splash_logo) {
 #ifdef _WIN32
     const std::string setup = "theatrhythm-setup.exe", cache = "%LOCALAPPDATA%\\Theatrhythm Final Bar Line";
 #else
@@ -290,11 +290,13 @@ void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save
     write_text(ini, "; Written by " + setup + ". Run it again to change these folders." + nl +
                     "; game: your dump (eboot.bin, sce_module, sce_sys, Media). It is only ever read." + nl +
                     "; save: your saves, and theatrhythm.log in its log folder." + nl +
+                    "; skip_splash_logo: skip the splash-logo sequence (true by default)." + nl +
                     "; Shader caches are shared by every copy of the game: " + cache + nl +
                     "; (cache=<folder> moves them)." + nl +
                     "[paths]" + nl +
                     "game=" + narrow(text(game)) + nl +
-                    "save=" + narrow(text(save)) + nl);
+                    "save=" + narrow(text(save)) + nl +
+                    "skip_splash_logo=" + (skip_splash_logo ? "true" : "false") + nl);
 }
 
 #ifndef _WIN32
@@ -449,6 +451,8 @@ std::optional<Paths> read_paths(const fs::path& root) {
             paths.game = clean(root / path_of(value));
         else if (key == L"save")
             paths.save = clean(root / path_of(value));
+        else if (key == L"skip_splash_logo")
+            paths.skip_splash_logo = lower(value) != L"false" && value != L"0";
     }
     if (paths.game.empty() || paths.save.empty())
         return std::nullopt;
@@ -502,6 +506,8 @@ fs::path install(const Options& opt, const Log& log) {
     std::vector<std::wstring> command = python;
     command.insert(command.end(), {text(prepare / L"run.py"), L"prepare", L"--game", text(game),
                                    L"--out", text(image)});
+    if (!opt.skip_splash_logo)
+        command.push_back(L"--no-splash-skip");
 #ifdef _WIN32
     SetEnvironmentVariableW(L"PYTHONIOENCODING", L"utf-8");
 #else
@@ -509,6 +515,13 @@ fs::path install(const Options& opt, const Log& log) {
 #endif
     if (unsigned long code = run(command, prepare, log))
         fail(L"Preparing the game failed (exit code " + std::to_wstring(code) + L"). The log says why.");
+
+    std::string link_report = read_text(image / L"link.json");
+    const std::string splash_status = "\"splash_skip_patched\": " +
+                                      std::string(opt.skip_splash_logo ? "true" : "false");
+    if (link_report.find(splash_status) == std::string::npos)
+        fail(L"The game-preparation scripts did not apply the selected splash-logo option. "
+             L"Update the setup folder from a current release, then run setup again.");
 
     // On a CPU without some instruction sets the game uses, the sites that use them are rewritten
     // (run.py's play does this at every start; here once).
@@ -552,7 +565,7 @@ fs::path install(const Options& opt, const Log& log) {
         }
         log(L"copied   saves from " + text(*opt.copy_saves_from));
     }
-    write_paths(root / L"paths.ini", game, save);
+    write_paths(root / L"paths.ini", game, save, opt.skip_splash_logo);
     log(L"wrote    paths.ini (game " + text(game) + L", save " + text(save) + L")");
     return exe;
 }

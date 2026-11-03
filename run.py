@@ -13,6 +13,7 @@ settings.ini (see settings.example.ini).
 """
 import argparse
 import collections
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -68,9 +69,18 @@ def run_script(name, *args, check=True):
     return result.returncode
 
 
-def image_is_current(game, out):
+def image_is_current(game, out, skip_splash_logo=True):
     linked = out / 'boot-linked.bin'
-    if not linked.is_file() or not (out / 'content.bin').is_file():
+    report_path = out / 'link.json'
+    if not linked.is_file() or not (out / 'content.bin').is_file() or not report_path.is_file():
+        return False
+    try:
+        report = json.loads(report_path.read_text(encoding='utf-8'))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(report, dict):
+        return False
+    if report.get('splash_skip_patched') is not skip_splash_logo:
         return False
     if not (out / 'button_icons').is_dir() or not (out / 'config_icon').is_dir():
         return False
@@ -81,14 +91,17 @@ def image_is_current(game, out):
     return all(not path.is_file() or path.stat().st_mtime < built for path in sources)
 
 
-def prepare(game, out, force=False):
-    if not force and image_is_current(game, out):
+def prepare(game, out, force=False, skip_splash_logo=True):
+    if not force and image_is_current(game, out, skip_splash_logo):
         print(f'Game image is current: {out / "boot-linked.bin"}', flush=True)
         return
     out.mkdir(parents=True, exist_ok=True)
     run_script('prepare.py', game, '--out', out)
     run_script('link_libc.py', game, '--out', out)
-    run_script('link_modules.py', game, '--out', out)
+    link_args = [game, '--out', out]
+    if not skip_splash_logo:
+        link_args.append('--no-splash-skip')
+    run_script('link_modules.py', *link_args)
     run_script('content_profile.py', game, '--out', out, '--sku', 'full')
     run_script('button_icons.py', game, '--out', out)
     run_script('config_icon.py', game, '--out', out)
@@ -152,6 +165,8 @@ def main():
     p.add_argument('--timeout', type=int, default=int(os.environ.get('THEATRHYTHM_TIMEOUT', '0')))
     p.add_argument('--user', type=Path, default=PORT / 'user', help='saves, temp0 and data (default: user/)')
     p.add_argument('--out', type=Path, default=PORT / 'out' / 'game', help='the game image (default: out/game)')
+    p.add_argument('--no-splash-skip', action='store_true',
+                   help='keep the startup-logo sequence instead of redirecting to the main menu')
     a, extra = p.parse_known_args()
     if a.game is None:
         fail('Pass the decrypted game dump with --game DIR or set THEATRHYTHM_GAME_DIR.')
@@ -159,7 +174,7 @@ def main():
     if not (game / 'eboot.bin').is_file():
         fail(f'No eboot.bin in {game} (pass --game or set THEATRHYTHM_GAME_DIR).')
     out = a.out.resolve()
-    prepare(game, out, force=a.command == 'prepare')
+    prepare(game, out, force=a.command == 'prepare', skip_splash_logo=not a.no_splash_skip)
     if a.command == 'prepare':
         return 0
     probe = find_probe()

@@ -33,6 +33,16 @@ MODULE_DIRS = ('sce_module', 'Media/Modules', 'Media/Plugins')
 FS_LOAD = bytes.fromhex('64488b042500000000')  # mov rax, fs:[0]
 MODULE_DEFERRED = 1  # module table flag: started on request, not at boot
 EH_FRAME_HDR = 0x6474e550  # PT_GNU_EH_FRAME
+INTRO_SKIP_MODULE = 'Il2CppUserAssemblies.prx'
+INTRO_SKIP_MODULE_SHA256 = 'b8592928fb51f8061290fc23127ccd5199a9564ee4c3f1f5bff3e79e212a4be6'
+INTRO_SKIP_CALL_OFFSET = 0x233f736
+INTRO_SKIP_END_MOVIE_OFFSET = 0x233fa90
+INTRO_SKIP_CALL = bytes.fromhex('e8f5f1e600')
+INTRO_SKIP_END_MOVIE = bytes.fromhex('554889e54156')
+SPLASH_SKIP_STARTUP_LOGO_ID_OFFSET = 0x17ed4c9
+SPLASH_SKIP_MAIN_MENU_ID_OFFSET = 0x17ec94d
+SPLASH_SKIP_STARTUP_LOGO_ID = bytes.fromhex('c7431091969800')
+SPLASH_SKIP_MAIN_MENU_ID = bytes.fromhex('c7431084969800')
 
 
 def unwind_info(m, base, size):
@@ -142,7 +152,34 @@ def patch_fs_loads(image, ph, base):
     return patched
 
 
-def link(game, out, module_names=DEFAULT_MODULES, deferred=None):
+def patch_intro_skip(image, base, m):
+    """Replace OpeningMain's movie playback call with its normal end-of-movie transition."""
+    if m['sha256'] != INTRO_SKIP_MODULE_SHA256:
+        raise ValueError('intro skip patch requires the supported game module revision')
+    call = base + INTRO_SKIP_CALL_OFFSET
+    end_movie = base + INTRO_SKIP_END_MOVIE_OFFSET
+    if image[call:call + len(INTRO_SKIP_CALL)] != INTRO_SKIP_CALL:
+        raise ValueError('intro skip patch call site did not match')
+    if image[end_movie:end_movie + len(INTRO_SKIP_END_MOVIE)] != INTRO_SKIP_END_MOVIE:
+        raise ValueError('intro skip patch target did not match')
+    displacement = end_movie - (call + len(INTRO_SKIP_CALL))
+    image[call:call + len(INTRO_SKIP_CALL)] = b'\xe8' + struct.pack('<i', displacement)
+
+
+def patch_splash_skip(image, base, m):
+    """Resolve the startup-logo scene to the main menu on the supported game revision."""
+    if m['sha256'] != INTRO_SKIP_MODULE_SHA256:
+        raise ValueError('splash skip patch requires the supported game module revision')
+    startup_logo_id = base + SPLASH_SKIP_STARTUP_LOGO_ID_OFFSET
+    main_menu_id = base + SPLASH_SKIP_MAIN_MENU_ID_OFFSET
+    if image[startup_logo_id:startup_logo_id + len(SPLASH_SKIP_STARTUP_LOGO_ID)] != SPLASH_SKIP_STARTUP_LOGO_ID:
+        raise ValueError('splash skip startup-logo ID did not match')
+    if image[main_menu_id:main_menu_id + len(SPLASH_SKIP_MAIN_MENU_ID)] != SPLASH_SKIP_MAIN_MENU_ID:
+        raise ValueError('splash skip main-menu ID did not match')
+    image[startup_logo_id + 3:startup_logo_id + 7] = SPLASH_SKIP_MAIN_MENU_ID[3:7]
+
+
+def link(game, out, module_names=DEFAULT_MODULES, deferred=None, skip_splash_logo=True):
     main = module(game / 'eboot.bin')
     raw = (out / 'boot.bin').read_bytes()
     magic, size, entry, ns, nr, ni, flags = unpack('<8s6Q', raw, 0)
@@ -175,6 +212,8 @@ def link(game, out, module_names=DEFAULT_MODULES, deferred=None):
     base = (size + 65535) & ~65535
     fs_patched = patch_fs_loads(image, main['ph'], 0)
     tls_module = 2
+    intro_skip_patched = False
+    splash_skip_patched = False
     if deferred is None:
         deferred = deferred_modules(game, module_names)
     module_exports = []
@@ -231,6 +270,12 @@ def link(game, out, module_names=DEFAULT_MODULES, deferred=None):
                     relocs.append((target, rk, imported(symbol), addend))
             else:
                 raise ValueError(f'{filename}: unsupported relocation type {kind}')
+        if filename == INTRO_SKIP_MODULE:
+            patch_intro_skip(image, base, m)
+            intro_skip_patched = True
+            if skip_splash_logo:
+                patch_splash_skip(image, base, m)
+                splash_skip_patched = True
         count = 0
         own_exports = []
         for s in m['symbols']:
@@ -307,12 +352,15 @@ def link(game, out, module_names=DEFAULT_MODULES, deferred=None):
     report = dict(modules=[{k: (hex(v) if k in ('base', 'init', 'tls_address', 'procparam') else v)
                             for k, v in t.items() if k != 'unwind'} for t in table],
                   bindings=len(bindings), imports=len(names), fs_loads_patched=fs_patched,
+                  intro_skip_patched=intro_skip_patched,
+                  splash_skip_patched=splash_skip_patched,
                   main_tls=dict(zip(('vaddr', 'filesz', 'memsz', 'align'), main_tls_values)),
                   unresolved_imports=unresolved)
     (out / 'link.json').write_text(json.dumps(report, indent=2) + '\n')
     summary = ', '.join(f"{t['file']}@{t['base']:#x}" + (' (deferred)' if t['flags'] & MODULE_DEFERRED else '') for t in table)
     print(f'Linked modules: {summary}; {len(bindings)} native bindings, {len(unresolved)} imports left to the host runtime, '
-          f'fs->gs patched={fs_patched}')
+          f'fs->gs patched={fs_patched}; intro skip patched={intro_skip_patched}; '
+          f'splash skip patched={splash_skip_patched}')
 
 
 if __name__ == '__main__':
@@ -321,5 +369,7 @@ if __name__ == '__main__':
     p.add_argument('game', type=Path)
     p.add_argument('--out', type=Path, default=Path(__file__).resolve().parent.parent / 'out')
     p.add_argument('--modules', nargs='*', default=list(DEFAULT_MODULES))
+    p.add_argument('--no-splash-skip', action='store_true',
+                   help='keep the startup-logo sequence instead of redirecting to the main menu')
     a = p.parse_args()
-    link(a.game, a.out, a.modules)
+    link(a.game, a.out, a.modules, skip_splash_logo=not a.no_splash_skip)

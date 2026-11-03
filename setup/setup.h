@@ -22,12 +22,14 @@ struct Options {
     std::filesystem::path root; // the release folder: the game exe, prepare/, and what the setup adds
     std::filesystem::path game; // the dump folder or its eboot.bin
     std::filesystem::path save; // saves and the launch log (run.py's --user)
+    bool skip_splash_logo = true;
     std::optional<std::filesystem::path> copy_saves_from; // the old save folder, whose saves go to `save`
 };
 
 // The folders a release folder's paths.ini names.
 struct Paths {
     std::filesystem::path game, save;
+    bool skip_splash_logo = true;
 };
 
 // Save data in a save folder (what the runtime keeps there apart from the log).

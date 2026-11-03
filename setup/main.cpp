@@ -8,7 +8,7 @@
 // With arguments it installs from the command line:
 //
 //     theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
-//                           [--shortcut <folder>|desktop]
+//                           [--no-splash-skip] [--shortcut <folder>|desktop]
 
 #include "setup.h"
 
@@ -76,17 +76,18 @@ private:
 
 constexpr wchar_t kUsage[] =
     L"usage: theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]\n"
-    L"                             [--shortcut <folder>|desktop]\n"
+    L"                             [--no-splash-skip] [--shortcut <folder>|desktop]\n"
     L"  --game        the decrypted game dump (eboot.bin, sce_module, sce_sys, Media); only ever read\n"
     L"  --save        where your saves go (default: the one paths.ini names, else save\\ here)\n"
     L"  --copy-saves  when --save changes, copy the saves from the old save folder\n"
+    L"  --no-splash-skip  keep the startup-logo sequence (default: skip it)\n"
     L"  --shortcut    also write the game's shortcut into this folder, or onto the Desktop\n"
     L"Sets up the folder this exe is in. With no arguments, opens the setup window.";
 
 int run_cli(const std::vector<std::wstring>& args) {
     Console con;
     std::wstring game, save, shortcut;
-    bool copy_saves = false;
+    bool copy_saves = false, skip_splash_logo = true;
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         std::wstring* value = a == L"--game"       ? &game
@@ -97,6 +98,8 @@ int run_cli(const std::vector<std::wstring>& args) {
             *value = args[++i];
         } else if (a == L"--copy-saves") {
             copy_saves = true;
+        } else if (a == L"--no-splash-skip") {
+            skip_splash_logo = false;
         } else {
             con.err(a == L"--help" || a == L"-h" ? kUsage : std::wstring(kUsage) + L"\n\nunexpected: " + a);
             return 2;
@@ -112,6 +115,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         opt.game = game;
         auto old = setup::read_paths(opt.root);
         opt.save = !save.empty() ? fs::path(save) : old ? old->save : setup::default_save();
+        opt.skip_splash_logo = skip_splash_logo;
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
         fs::path exe = setup::install(opt, [&](const std::wstring& line) { con.out(line); });
@@ -135,6 +139,7 @@ enum : int {
     kGameBrowse,
     kSaveEdit,
     kSaveBrowse,
+    kSplashSkip,
     kLog,
     kPlay,
 };
@@ -145,7 +150,7 @@ enum : UINT {
 
 struct Ui {
     HWND wnd = nullptr;
-    HWND game = nullptr, save = nullptr, log = nullptr, play = nullptr;
+    HWND game = nullptr, save = nullptr, splash_skip = nullptr, log = nullptr, play = nullptr;
     std::vector<HWND> inputs; // disabled while installing (Play Game too, and until the folder is set up)
     HFONT font = nullptr;
     UINT dpi = 96;
@@ -238,6 +243,7 @@ void start_install() {
     opt.root = ui.root;
     opt.game = game;
     opt.save = save;
+    opt.skip_splash_logo = SendMessageW(ui.splash_skip, BM_GETCHECK, 0, 0) == BST_CHECKED;
     try {
         if (auto old = saves_to_move(opt.root, opt.save)) {
             std::wstring ask = L"Copy your saves to the new save folder?\n\nFrom: " + old->wstring() + L"\nTo: " + save;
@@ -305,12 +311,15 @@ void create_controls() {
     add(WC_STATICW, L"Save folder:", 0, kMargin, 68, edit_w, 18, 0);
     ui.save = add(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, kMargin, 88, edit_w, 24, kSaveEdit, WS_EX_CLIENTEDGE);
     HWND save_browse = add(WC_BUTTONW, L"Browse...", WS_TABSTOP, right, 87, kButton, 26, kSaveBrowse);
-    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 126,
-                 kWidth - 2 * kMargin, 150, kLog, WS_EX_CLIENTEDGE);
+    ui.splash_skip = add(WC_BUTTONW, L"Skip splash-logo sequence (go straight to the main menu)",
+                         WS_TABSTOP | BS_AUTOCHECKBOX, kMargin, 122, kWidth - 2 * kMargin, 22, kSplashSkip);
+    SendMessageW(ui.splash_skip, BM_SETCHECK, BST_CHECKED, 0);
+    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 150,
+                 kWidth - 2 * kMargin, 126, kLog, WS_EX_CLIENTEDGE);
     ui.play = add(WC_BUTTONW, L"Play Game", WS_TABSTOP, right - 2 * (kButton + 6), 290, kButton, 28, kPlay);
     HWND install = add(WC_BUTTONW, L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, right - kButton - 6, 290, kButton, 28, IDOK);
     HWND exit = add(WC_BUTTONW, L"Exit", WS_TABSTOP, right, 290, kButton, 28, IDCANCEL);
-    ui.inputs = {ui.game, game_browse, ui.save, save_browse, install, exit};
+    ui.inputs = {ui.game, game_browse, ui.save, save_browse, ui.splash_skip, install, exit};
     set_busy(false);
 
     // Start from what the last install chose (paths.ini), else an empty game folder and save\ here.
@@ -321,6 +330,7 @@ void create_controls() {
     }
     fs::path game = paths ? paths->game : fs::path();
     fs::path save = paths ? paths->save : setup::default_save();
+    SendMessageW(ui.splash_skip, BM_SETCHECK, paths && !paths->skip_splash_logo ? BST_UNCHECKED : BST_CHECKED, 0);
     SetWindowTextW(ui.game, game.c_str());
     SetWindowTextW(ui.save, save.c_str());
     append_log(setup::ready(ui.root) ? L"The game is set up. Press Play Game, or pick new folders and press Install."
