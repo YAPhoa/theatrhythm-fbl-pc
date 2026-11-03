@@ -41,7 +41,9 @@ class LoaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path=Path(tmp)/'content.bin'
             for data in (b'TFCONT01',struct.pack('<8s5I',b'TFCONT01',2,0,0,0,0),
-                         struct.pack('<8s5I',b'TFCONT01',3,0,0,0,0)+b'extra'):
+                         struct.pack('<8s5I',b'TFCONT01',3,0,0,0,0)+b'extra',
+                         struct.pack('<8s6I',b'TFCONT02',3,0,0,0,0,1),
+                         struct.pack('<8s6I',b'TFCONT02',3,0,0,0,0,2501)):
                 with self.subTest(data=data):
                     path.write_bytes(data)
                     r=self.run_image(package(b'\xc3'),'--content-profile',str(path))

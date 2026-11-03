@@ -93,6 +93,7 @@ def image_is_current(game, out, skip_splash_logo=True):
 
 def prepare(game, out, force=False, skip_splash_logo=True):
     if not force and image_is_current(game, out, skip_splash_logo):
+        run_script('content_profile.py', game, '--out', out, '--sku', 'full')
         print(f'Game image is current: {out / "boot-linked.bin"}', flush=True)
         return
     out.mkdir(parents=True, exist_ok=True)

@@ -53,8 +53,8 @@ python run.py --timeout 20
   `out/game/missing-imports.txt`).
 - Without a command, `run.py` starts the game. The first STOP or fault it prints is the next thing
   to implement or fix. `--timeout` ends a run after that many seconds.
-- `run.py prepare` rebuilds the game image (`out/game/`, or `--out DIR`). Otherwise it is rebuilt
-  only when the dump or `scripts/` change.
+- `run.py prepare` rebuilds the game image (`out/game/`, or `--out DIR`). Otherwise the image is
+  rebuilt only when the dump or `scripts/` change; the AppContent profile is refreshed each run.
 - Saves go to `user/` (`--user DIR`). Shader caches go to one folder per PC,
   `%LOCALAPPDATA%\Theatrhythm Final Bar Line`, which installed copies of the game share
   (`THEATRHYTHM_GPU_USER_DIR` moves it).

@@ -82,7 +82,8 @@ Linux PC with its own GPU or on a Steam Deck. If you try it there, please report
 3. Choose your **game folder** (the dump) and a **save folder** (by default `save` inside the
    release folder). Keep **Skip splash-logo sequence** checked to start at the main menu, or
    uncheck it to show the logos, then press **Install**. Setup prepares the game from your dump in a
-   few seconds and offers a desktop shortcut. Your dump is only read, never changed.
+   few seconds and offers a desktop shortcut. Uncompressed add-on packages in the dump's `DLC`
+   folder are registered automatically. Your dump is only read, never changed.
 4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut.
 
 Run `theatrhythm-setup.exe` again any time to change the game or save folder. It offers to copy your

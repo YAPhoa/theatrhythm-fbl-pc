@@ -106,7 +106,15 @@ uintptr_t runtime_eventflag_resolve(const char *name);
 void runtime_eventflag_report(void);
 unsigned runtime_sema_waiters(uint32_t id);
 uintptr_t runtime_time_resolve(const char *name);
-void runtime_content_configure(const uint32_t values[5]);
+#define RUNTIME_CONTENT_LABEL_SIZE 17
+#define RUNTIME_CONTENT_DIRECTORY_SIZE 256
+#define RUNTIME_CONTENT_MAX_ADDONS 2500
+typedef struct {
+    char entitlement[RUNTIME_CONTENT_LABEL_SIZE];
+    char directory[RUNTIME_CONTENT_DIRECTORY_SIZE];
+} RuntimeContentAddon;
+void runtime_content_configure(const uint32_t values[5], const RuntimeContentAddon *addons,
+                               size_t addon_count, const char *app0);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
 typedef struct { const char *name; void *function; } RuntimeExport;

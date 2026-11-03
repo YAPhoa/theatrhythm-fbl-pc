@@ -558,14 +558,38 @@ int main(int argc, char **argv) {
         FILE *profile=fopen(content_profile,"rb");
         unsigned char data[28];
         if (!profile) fail("cannot open content profile");
-        if (fread(data,1,sizeof(data),profile)!=sizeof(data) || fgetc(profile)!=EOF || memcmp(data,"TFCONT01",8)) fail("invalid content profile");
-        fclose(profile);
+        if (fread(data,1,sizeof(data),profile)!=sizeof(data) ||
+            (memcmp(data,"TFCONT01",8) && memcmp(data,"TFCONT02",8))) fail("invalid content profile");
         uint32_t values[5];
         for (unsigned i=0;i<5;++i) {
             unsigned char *p=data+8+i*4;
             values[i]=(uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24;
         }
-        runtime_content_configure(values);
+        RuntimeContentAddon *addons=NULL;
+        size_t addon_count=0;
+        if (!memcmp(data,"TFCONT01",8)) {
+            if (fgetc(profile)!=EOF) fail("invalid content profile");
+        } else {
+            unsigned char count_bytes[4];
+            if (fread(count_bytes,1,sizeof(count_bytes),profile)!=sizeof(count_bytes))
+                fail("invalid content profile");
+            addon_count=(size_t)count_bytes[0]|(size_t)count_bytes[1]<<8|
+                        (size_t)count_bytes[2]<<16|(size_t)count_bytes[3]<<24;
+            if (addon_count>RUNTIME_CONTENT_MAX_ADDONS) fail("invalid content profile");
+            if (addon_count) {
+                addons=calloc(addon_count,sizeof(*addons));
+                if (!addons) fail("cannot allocate content profile");
+            }
+            for (size_t i=0;i<addon_count;++i) {
+                if (fread(&addons[i],1,sizeof(*addons),profile)!=sizeof(*addons)) {
+                    free(addons); fail("invalid content profile");
+                }
+            }
+            if (fgetc(profile)!=EOF) { free(addons); fail("invalid content profile"); }
+        }
+        fclose(profile);
+        runtime_content_configure(values,addons,addon_count,app0);
+        free(addons);
     }
     if (app0) {
         runtime_file_configure(app0, user_dir ? user_dir : "user");
