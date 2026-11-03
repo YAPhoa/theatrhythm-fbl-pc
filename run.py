@@ -9,7 +9,7 @@
 Options: --game DIR (the decrypted dump; default THEATRHYTHM_GAME_DIR), --timeout SECONDS (play only),
 --out DIR (the game image, default out/game). Other arguments go to theatrhythm-fbl. Saves land in
 user/, shader caches in the folder every copy of the game shares (shared_cache_dir), options in
-settings.ini (see settings.example.ini).
+user/settings.ini, or settings.ini here until that exists (see settings.example.ini).
 """
 import argparse
 import collections
@@ -134,7 +134,9 @@ def play(probe, game, out, timeout, user, extra):
     if isa_rewrite_wanted(parse_cpu_features(features.stdout), env):
         if run_script('isa_rewrite.py', out / 'boot-linked.bin', '--out', out, check=False) == 0:
             isa_args = ['--isa-rewrite', str(out / 'isa-rewrite.bin')]
-    env.setdefault('THEATRHYTHM_CONFIG', str(PORT / 'settings.ini'))
+    # As the release's launcher: the save folder's settings.ini, else the one next to this script.
+    env.setdefault('THEATRHYTHM_CONFIG', str(user / 'settings.ini'))
+    env.setdefault('THEATRHYTHM_CONFIG_DEFAULT', str(PORT / 'settings.ini'))
     command = [str(probe), str(out / 'boot-linked.bin'), '--content-profile', str(out / 'content.bin'),
                '--app0', str(game), '--user', str(user), '--timeout', str(timeout), *isa_args, *extra]
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL)

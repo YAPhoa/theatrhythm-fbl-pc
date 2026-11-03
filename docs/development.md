@@ -55,10 +55,16 @@ python run.py --timeout 20
   `%LOCALAPPDATA%\Theatrhythm Final Bar Line`, which installed copies of the game share
   (`THEATRHYTHM_GPU_USER_DIR` moves it).
 - Every `settings.ini` key has an environment variable that overrides it (named in
-  `settings.example.ini`).
+  `settings.example.ini`). The file is `THEATRHYTHM_CONFIG` (the launcher: `settings.ini` in the
+  save folder; `run.py`: `user/settings.ini`), read from `THEATRHYTHM_CONFIG_DEFAULT` (the one next to
+  the exe, or this checkout's) until it exists; the display pages always write `THEATRHYTHM_CONFIG`.
 - `THEATRHYTHM_VERBOSE=1` logs every routine event (threads, semaphores, memory maps, module
   loads and lookups). `run.py` and the debug package's `diagnose/start.bat` turn it on; an installed
   release leaves it off, so its log holds faults, stops, errors and the end-of-run summary.
+- Hang dump: once a frame has been shown, a picture held for `THEATRHYTHM_HANG_DUMP` seconds
+  (default 20, `0` turns it off) logs every thread's name, CPU time and frames (`Hang:` lines, guest
+  offsets and host module offsets, innermost first), once until frames move again. The `--timeout`
+  watchdog prints the same thread list before it ends a run.
 
 ## Development loop
 
@@ -108,6 +114,20 @@ sits in an unused corner of the Options atlas, one of the game's encrypted bundl
 decrypts it with the key from the game's own metadata, adds `assets/config_icon/display.bc7` and
 encrypts it again (`scripts/config_icon.py`), and the runtime serves it in place of the game's file.
 
+The same file lets left and right on Options > Language & Menu Volume > Language step through all
+nine display languages: the game has Korean and Chinese (Traditional, Simplified) text, graphics and
+fonts, but this release's region checks (`RegionLanguage`, also inlined in `ConfigInfo`'s setter, its
+save reader and the picker) allow only the Western six. The hook switches the language as the
+picker does (`LanguageController.SwitchLanguage` with `FontResourceManager.Instance`, then
+`Backup.ReserveSave`), byte patches keep the choice through the setter and a reload, and a stub
+gives the picker of six a cursor on English when the language is one of the other three.
+
+On field stages the party walks between enemies: `StageCharacter.MyLateUpdate` picks run, walk or
+idle from how far the character moved since the last frame, with thresholds made for 60 fps, so
+above that (an uncapped `fps_limit`) the party slid along in its idle pose. `src/runtime_field_walk.c`
+sends that comparison through a stub that divides the distance by (60 x `Time.deltaTime`)^2, so
+any frame rate reads like 60; at 60 fps the result is unchanged.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).
@@ -120,6 +140,7 @@ when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEAT
 | `gpu/` | shadPS4 video core, the shim and overlay around it, CMake build |
 | `scripts/` | Image preparation and linking (Python) |
 | `setup/` | `theatrhythm-setup.exe`, which sets up a release folder from a player's dump |
+| `tools/dlcmaker/` | Custom song packs: the DLC maker (`core/`; its window and command line in `app/`); see its README |
 | `packaging/windows/` | Manifest, resources and icon of the game exe; `diagnose/`, the debug package's glitch kit |
 | `assets/button_icons/` | Xbox and keyboard icon sheets (PNG, and the game's texture format from `tools/encode_button_icons.py`) |
 | `assets/config_icon/` | Display Settings icon for the Options menu (PNG patch, and its atlas blocks from `tools/encode_config_icon.py`) |

@@ -21,11 +21,15 @@ dump of your own copy of the game (PS4, version 1.00).
   redrawn for keyboard and Xbox. DualSense works too.
 - **Easy setup:** point the installer at your dump, and it can add a desktop shortcut (on Linux,
   an application menu entry).
+- **Custom songs:** [dlcmaker](tools/dlcmaker/README.md) turns your own music, charts and art into
+  add-on packs that show up in Music Stages next to the game's DLC, on battle, event or field stages.
+  It's a separate download on the releases page: `theatrhythm-dlcmaker.exe` (Windows) or
+  `theatrhythm-dlcmaker.AppImage` (Linux).
 
 ## Supported languages
 
-All of the game's own languages are available (it asks which one on first boot). English is the
-one played most with this runner so far.
+The game asks which language to use on first boot and offers six. English is the one played most
+with this runner so far.
 
 - ✅ English
 - ✅ Japanese
@@ -33,9 +37,14 @@ one played most with this runner so far.
 - ✅ German
 - ✅ Italian
 - ✅ Spanish
-- ✅ Korean
-- ✅ Chinese (Traditional)
-- ✅ Chinese (Simplified)
+- ✅ Korean, Chinese (Traditional) and Chinese (Simplified), available via the in-game options
+
+The game's data has Korean and Chinese text, graphics and fonts too, but the release this runner
+targets (CUSA32853, built for the West) leaves them out of its language picker. The runner adds
+them in the game: in **Options > Language & Menu Volume**, press left or right on **Language** to
+step through all nine. The choice is saved with your game. Pressing the row still opens the game's
+own picker of six. These three have been checked less than the others: the menus and the tutorial
+display fully.
 
 ## Download
 
@@ -108,16 +117,37 @@ game asks you to). Your folders, saves and settings are kept.
 
 Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,
 frame limit, audio volume and speaker layout, vibration, the dialog confirm button and control
-remapping, each with a comment explaining it.
+remapping, each with a comment explaining it. A `settings.ini` in your save folder wins over it, so
+your options can move with your saves; the game reads the one next to it until the save folder has
+its own.
 
 In the game, **Options > Display Settings** (an extra button below Streaming Rules) changes the
 window mode, resolution, vsync, frame rate limit and render resolution. Changes apply at once and
-are saved to `settings.ini` when you leave the page.
+are saved to `settings.ini` in your save folder when you leave the page. **F10** opens the same
+settings in a panel with a few more (monitor, frames queued, anisotropic filtering, and the
+advanced choices below).
 
 **Render resolution** is 4K by default (`render_resolution=4k` in `settings.ini`): the game renders at
 3840x2160, as on a PS4 Pro, and the picture is filtered down to your screen (the desktop resolution,
 as the game opens borderless by default), so it's sharper on any screen. On a weaker GPU set it to
 1080p, as on a PS4. It applies the next time you start the game.
+
+### Advanced settings
+
+The defaults are the steady ones: VSync on, one frame per refresh, no tearing. These change that
+trade-off; set them in `settings.ini` or the F10 panel.
+
+| Setting | Values | What it does |
+| --- | --- | --- |
+| `vsync` | `1` (default), `0` | Off shows the newest finished frame at each refresh: less input delay, still no tearing. Some drivers (NVIDIA) hold it to twice the refresh rate. |
+| `tearing` | `0` (default), `1` | With `vsync=0`, shows each frame the moment it is done (Vulkan Immediate). The least input delay and no frame rate ceiling, but the picture can tear. F10 shows it as VSync "Off, tearing allowed". |
+| `fps_limit` | `0` (default), `30` to `240`, `unlimited` | `0` is one frame per refresh. A number caps the frame rate (with `vsync=0`). `unlimited` removes the cap: hundreds of frames a second with `tearing=1`, so the GPU runs flat out. |
+| `frames_queued` | `1` (default), `2`, `0` | Frames the CPU may prepare ahead of the GPU: 1 is the lowest latency, more can smooth out a slow GPU (`0` unbounded). |
+| `anisotropy` | `0` (default), `2` to `16` | Sharper textures seen at an angle. Applies at the next start. |
+
+**Uncapped** is `vsync=0`, `tearing=1` and `fps_limit=unlimited`. A middle ground is the same with
+`fps_limit=240`: most of the latency gain, with the GPU far from flat out. On a monitor at 60 Hz you
+still see 60 pictures a second; what you gain is input delay.
 
 ## Controls
 
@@ -151,6 +181,8 @@ DualSense, Xbox icons for other gamepads, and key names for the keyboard. Set `b
 
 Found a problem? [Open an issue](https://github.com/YAPhoa/theatrhythm-fbl-pc/issues) and attach
 `theatrhythm.log` from the `log` folder in your save folder. Any suggestion, just open an issue too.
+If the picture freezes, leave the game running for half a minute before you close it: after 20
+seconds without a new frame it writes what every thread is doing to that log.
 
 ## Building from source
 

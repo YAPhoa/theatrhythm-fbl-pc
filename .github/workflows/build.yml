@@ -1,8 +1,9 @@
 # Builds from source on Windows (MSYS2 CLANG64, as docs/building.md), runs the tests and packages
-# the release (stripped, what players get), its symbols and the debug release (diagnose/ kit) as the
-# run's artifacts. The linux job does the same for Linux; linux-smoke checks its release on other
-# distros. A v* tag then publishes the two player packages alone (Windows zip, Linux tarball) as a
-# GitHub release, once every job has passed.
+# the release (stripped, what players get), its symbols, the debug release (diagnose/ kit) and the
+# DLC maker (its own download) as the run's artifacts. The linux job does the same for Linux;
+# linux-smoke checks its release and DLC maker on other distros. A v* tag then publishes the player
+# packages alone (the game and the DLC maker, for Windows and Linux) as a GitHub release, once every
+# job has passed.
 name: build
 
 on:
@@ -18,12 +19,18 @@ env:
   # python.org "Windows embeddable package (64-bit)", shipped in prepare/python.
   PYTHON_EMBED: https://www.python.org/ftp/python/3.15.1/python-3.15.1-embed-amd64.zip
   PYTHON_EMBED_SHA256: 352e232f25b5120508f11a6dfc1bd9076d3e70c30977d552a63338838c2ae8fb
+  # appimagetool and the type2 runtime it puts in front of the DLC maker's AppImage.
+  APPIMAGETOOL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  APPIMAGE_RUNTIME: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+  APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
 
 jobs:
   windows:
     runs-on: windows-latest
     outputs:
       release: ${{ steps.package.outputs.release }}
+      dlcmaker: ${{ steps.package.outputs.dlcmaker }}
     defaults:
       run:
         shell: bash
@@ -39,19 +46,39 @@ jobs:
           msystem: CLANG64
           release: false
           update: true
-          install: git patch
+          install: git patch make
           pacboy: >-
             toolchain:p cmake:p ninja:p pkgconf:p python:p
             vulkan-headers:p vulkan-loader:p vulkan-memory-allocator:p glslang:p
             sdl3:p fmt:p boost:p robin-map:p xxhash:p ffmpeg:p zydis:p
             spirv-tools:p spirv-headers:p spirv-cross:p
+            libvorbis:p libogg:p nasm:p x264:p dav1d:p zlib:p
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.15'
 
       - name: Build and run the runtime tests
         run: bash build.sh --test
+
+      - name: DLC maker
+        run: bash tools/dlcmaker/app/build.sh
+
+      # The DLC maker's minimal static ffmpeg, rebuilt when its script (FFmpeg's version, the features)
+      # or the MSYS2 libraries it links change.
+      - name: DLC maker's ffmpeg (cache key)
+        id: ffmpeg-key
+        shell: msys2 {0}
+        run: echo "libs=$(pacman -Q mingw-w64-clang-x86_64-{x264,dav1d,zlib} | sha1sum | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: ffmpeg-cache
+        with:
+          path: out/dlcmaker-ffmpeg
+          key: dlcmaker-ffmpeg-windows-${{ hashFiles('tools/dlcmaker/build-ffmpeg.sh') }}-${{ steps.ffmpeg-key.outputs.libs }}
+      - name: DLC maker's ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: bash tools/dlcmaker/build-ffmpeg.sh out/dlcmaker-ffmpeg
 
       - name: Python tests
         run: cd tests && python -m unittest discover -p "test_*.py"
@@ -66,8 +93,11 @@ jobs:
         run: |
           python tools/package.py --python "$RUNNER_TEMP/python-embed.zip" --zip
           python tools/package.py --python "$RUNNER_TEMP/python-embed.zip" --zip --debug --out dist-debug
+          python tools/package.py --dlcmaker --ffmpeg out/dlcmaker-ffmpeg/ffmpeg.exe --zip
           echo "RELEASE=$(cat dist/release.txt)" >> "$GITHUB_ENV"
+          echo "DLCMAKER=$(cat dist-dlcmaker/release.txt)" >> "$GITHUB_ENV"
           echo "release=$(cat dist/release.txt)" >> "$GITHUB_OUTPUT"
+          echo "dlcmaker=$(cat dist-dlcmaker/release.txt)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -84,11 +114,16 @@ jobs:
           name: ${{ env.RELEASE }}-symbols
           path: out/${{ env.RELEASE }}-symbols.zip
           compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DLCMAKER }}
+          path: out/theatrhythm-dlcmaker.exe
+          compression-level: 0
 
 
   # Linux: built on Ubuntu 24.04 so it starts on glibc 2.39 or newer (SteamOS, Fedora/Bazzite,
-  # Debian 13, Ubuntu 24.04+). The release, debug and symbols tarballs are the run's artifacts; not
-  # published with the tag yet.
+  # Debian 13, Ubuntu 24.04+). The release, debug and symbols tarballs and the DLC maker's are the
+  # run's artifacts.
   linux:
     runs-on: ubuntu-24.04
     env:
@@ -97,6 +132,7 @@ jobs:
       CXX: clang++-18
     outputs:
       release: ${{ steps.package.outputs.release }}
+      dlcmaker: ${{ steps.package.outputs.dlcmaker }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,16 +149,40 @@ jobs:
         if: failure()
         run: ninja -C out/gpu -k 0 theatrhythm-fbl theatrhythm-setup 2>&1 | grep -E -A4 'error:|undefined reference' | head -400
 
+      - name: DLC maker
+        run: bash tools/dlcmaker/app/build.sh
+
+      - uses: actions/cache@v4
+        id: ffmpeg-cache
+        with:
+          path: out/dlcmaker-ffmpeg
+          key: dlcmaker-ffmpeg-linux-${{ hashFiles('tools/dlcmaker/build-ffmpeg.sh', 'packaging/linux/ci-deps.sh') }}
+      - name: DLC maker's ffmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        run: bash tools/dlcmaker/build-ffmpeg.sh out/dlcmaker-ffmpeg
+
       - name: Python tests
         run: cd tests && python3 -m unittest discover -p "test_*.py"
+
+      - name: appimagetool
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/appimagetool" "$APPIMAGETOOL"
+          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          curl -sSfL -o "$RUNNER_TEMP/appimage-runtime" "$APPIMAGE_RUNTIME"
+          echo "$APPIMAGE_RUNTIME_SHA256  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
 
       - name: Package
         id: package
         run: |
           python3 tools/package.py --zip
           python3 tools/package.py --zip --debug --out dist-debug
+          python3 tools/package.py --dlcmaker --ffmpeg out/dlcmaker-ffmpeg/ffmpeg --zip \
+            --appimagetool "$RUNNER_TEMP/appimagetool" --appimage-runtime "$RUNNER_TEMP/appimage-runtime"
           echo "RELEASE=$(cat dist/release.txt)" >> "$GITHUB_ENV"
+          echo "DLCMAKER=$(cat dist-dlcmaker/release.txt)" >> "$GITHUB_ENV"
           echo "release=$(cat dist/release.txt)" >> "$GITHUB_OUTPUT"
+          echo "dlcmaker=$(cat dist-dlcmaker/release.txt)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -139,9 +199,14 @@ jobs:
           name: ${{ env.RELEASE }}-linux-symbols
           path: out/${{ env.RELEASE }}-linux-symbols.tar.gz
           compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.DLCMAKER }}-linux
+          path: out/theatrhythm-dlcmaker.AppImage
+          compression-level: 0
 
-  # The unpacked release on distros it was not built on: libraries, glibc, the setup and the
-  # paths.ini start (packaging/linux/smoke-test.sh; no game dump or GPU).
+  # The unpacked release and DLC maker on distros they were not built on: libraries, glibc, the setup,
+  # the paths.ini start and the DLC maker's Check (packaging/linux/smoke-test.sh; no game dump or GPU).
   linux-smoke:
     needs: linux
     runs-on: ubuntu-24.04
@@ -157,11 +222,17 @@ jobs:
         with:
           name: ${{ needs.linux.outputs.release }}-linux
           path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.linux.outputs.dlcmaker }}-linux
+          path: out
       - name: ${{ matrix.image }}
         run: |
           mkdir -p unpacked && tar -xzf out/*-linux.tar.gz -C unpacked
+          chmod +x out/theatrhythm-dlcmaker.AppImage  # artifacts drop the exec bit
           docker run --rm -v "$PWD:/w" "${{ matrix.image }}" \
-            bash /w/packaging/linux/smoke-test.sh "/w/unpacked/${{ needs.linux.outputs.release }}"
+            bash /w/packaging/linux/smoke-test.sh "/w/unpacked/${{ needs.linux.outputs.release }}" \
+            /w/out/theatrhythm-dlcmaker.AppImage
 
   # v* tags: the release, with what players download and nothing else (no symbols or debug builds).
   publish:
@@ -179,12 +250,21 @@ jobs:
         with:
           name: ${{ needs.linux.outputs.release }}-linux
           path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.windows.outputs.dlcmaker }}
+          path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.linux.outputs.dlcmaker }}-linux
+          path: out
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           WINDOWS: ${{ needs.windows.outputs.release }}
           LINUX: ${{ needs.linux.outputs.release }}
         run: |
+          chmod +x out/theatrhythm-dlcmaker.AppImage
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
-            --notes "Windows: unzip ${WINDOWS}.zip and run theatrhythm-setup.exe. Linux: extract ${LINUX}-linux.tar.gz and run theatrhythm-setup. See the README." \
-            "out/${WINDOWS}.zip" "out/${LINUX}-linux.tar.gz"
+            --notes "Windows: unzip ${WINDOWS}.zip and run theatrhythm-setup.exe. Linux: extract ${LINUX}-linux.tar.gz and run theatrhythm-setup. Custom songs: the DLC maker is theatrhythm-dlcmaker.exe (Windows) or theatrhythm-dlcmaker.AppImage (Linux); put it in the game's folder. See the README." \
+            "out/${WINDOWS}.zip" "out/${LINUX}-linux.tar.gz" out/theatrhythm-dlcmaker.exe out/theatrhythm-dlcmaker.AppImage

@@ -1,0 +1,504 @@
+{
+ "log": [
+  {
+   "args": [
+    "new",
+    "W/Example"
+   ],
+   "code": 0,
+   "out": "created W/Example: add logo.png next to dlc.json; in \"My Song\" add the audio (mp3...), jacket.png and charts\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "new",
+    "W/Example"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "W/Example is not empty"
+  },
+  {
+   "args": [
+    "new-dlc",
+    "W/ws",
+    "  Pack Ü 1 "
+   ],
+   "code": 0,
+   "out": "created W/ws/Pack Ü 1\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "new-dlc",
+    "W/ws",
+    "bad:name"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "'bad:name' cannot be a folder name"
+  },
+  {
+   "args": [
+    "new-dlc",
+    "W/ws/Pack Ü 1",
+    "Inner"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "W/ws/Pack Ü 1 is itself a DLC: open the folder above it to add another"
+  },
+  {
+   "args": [
+    "new-dlc",
+    "W/ws",
+    "Scratch"
+   ],
+   "code": 0,
+   "out": "created W/ws/Scratch\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "new-song",
+    "W/ws/Pack Ü 1",
+    "Tone Battle"
+   ],
+   "code": 0,
+   "out": "created W/ws/Pack Ü 1/Tone Battle\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "new-song",
+    "W/ws/Pack Ü 1",
+    "Tone Field",
+    "field"
+   ],
+   "code": 0,
+   "out": "created W/ws/Pack Ü 1/Tone Field\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "new-song",
+    "W/ws/Pack Ü 1",
+    "S",
+    "bogus"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "stage must be one of battle, event, field"
+  },
+  {
+   "args": [
+    "new-song",
+    "W/ws",
+    "S"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "W/ws: not a DLC folder (no dlc.json)"
+  },
+  {
+   "args": [
+    "new-song",
+    "W/ws/Scratch",
+    "Edits",
+    "battle"
+   ],
+   "code": 0,
+   "out": "created W/ws/Scratch/Edits\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Battle",
+    "audio",
+    "W/src/tone.wav"
+   ],
+   "code": 0,
+   "out": "copying tone.wav (4.6 MB)\naudio: W/ws/Pack Ü 1/Tone Battle/audio.wav\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Battle",
+    "chart",
+    "W/src/charts.json"
+   ],
+   "code": 0,
+   "out": "copied charts.json -> W/ws/Pack Ü 1/Tone Battle/charts.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Battle",
+    "jacket",
+    "W/src/jacket.png"
+   ],
+   "code": 0,
+   "out": "copying jacket.png (0.0 MB)\njacket: W/ws/Pack Ü 1/Tone Battle/jacket.png\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Field",
+    "audio",
+    "W/src/tone.wav"
+   ],
+   "code": 0,
+   "out": "copying tone.wav (4.6 MB)\naudio: W/ws/Pack Ü 1/Tone Field/audio.wav\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Field",
+    "chart",
+    "W/src/basic.json"
+   ],
+   "code": 0,
+   "out": "copied basic.json -> W/ws/Pack Ü 1/Tone Field/basic.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Field",
+    "chart",
+    "W/src/expert.json"
+   ],
+   "code": 0,
+   "out": "copied expert.json -> W/ws/Pack Ü 1/Tone Field/expert.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1/Tone Field",
+    "chart",
+    "W/src/ultimate.json"
+   ],
+   "code": 0,
+   "out": "copied ultimate.json -> W/ws/Pack Ü 1/Tone Field/ultimate.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Pack Ü 1",
+    "logo",
+    "W/src/logo.png"
+   ],
+   "code": 0,
+   "out": "copying logo.png (0.0 MB)\nlogo: W/ws/Pack Ü 1/logo.png\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Scratch/Edits",
+    "audio",
+    "W/src/sine.mp3"
+   ],
+   "code": 0,
+   "out": "copying sine.mp3 (0.0 MB)\naudio: W/ws/Scratch/Edits/audio.mp3\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Scratch/Edits",
+    "audio",
+    "W/src/jacket.png"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "jacket.png: a audio must be one of .mp3 .ogg .opus .flac .wav .m4a .aac"
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Scratch/Edits",
+    "wat",
+    "W/src/tone.wav"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "unknown role 'wat' (one of audio, movie, jacket, thumbnail, logo, logo_wide, chart)"
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Scratch/Edits",
+    "chart",
+    "W/src/notes.json"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "notes.json: not valid JSON: Expecting property name enclosed in double quotes: line 1 column 13 (char 12)"
+  },
+  {
+   "args": [
+    "add-file",
+    "W/ws/Scratch/Edits",
+    "jacket",
+    "W/src/missing.png"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "W/src/missing.png: not a file"
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Pack Ü 1/Tone Battle",
+    "fade_out=0",
+    "preview_start=2",
+    "preview_end=12",
+    "copyright=Test"
+   ],
+   "code": 0,
+   "out": "saved W/ws/Pack Ü 1/Tone Battle/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Pack Ü 1/Tone Field",
+    "fade_out=0",
+    "end=22.5"
+   ],
+   "code": 0,
+   "out": "saved W/ws/Pack Ü 1/Tone Field/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Pack Ü 1",
+    "series.name=Tone Series",
+    "label=ToneTest"
+   ],
+   "code": 0,
+   "out": "saved W/ws/Pack Ü 1/dlc.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "start=1.5",
+    "end= 90 ",
+    "fade_out=abc"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "fade_out: not a number: 'abc'"
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "start=1.5",
+    "chart_offset_ms=12.0",
+    "preview_start=30",
+    "audio_from_video=TRUE",
+    "stage_from=481",
+    "enemies=1_2",
+    "background=190000095"
+   ],
+   "code": 0,
+   "out": "note: the preview needs both a start and an end; until then the default one is used\nsaved W/ws/Scratch/Edits/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "stage=battle",
+    "enemy_waves=0:83,84|1:5",
+    "title=Ünï ☃"
+   ],
+   "code": 0,
+   "out": "note: the preview needs both a start and an end; until then the default one is used\nsaved W/ws/Scratch/Edits/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "audio_from_video=maybe"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "audio_from_video: true or false, not 'maybe'"
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "enemy_waves=0:x"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "enemy_waves: invalid literal for int() with base 10: 'x'"
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "stage=field",
+    "preview_end=45",
+    "enemies=x"
+   ],
+   "code": 1,
+   "out": "note: stage_from cleared (it was for a battle stage)\nnote: background cleared (it was for a battle stage)\nnote: enemy_waves cleared (it was for a battle stage)\nnote: enemies cleared (it was for a battle stage)\n",
+   "err": "enemies: not a whole number: 'x'"
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "stage=field",
+    "preview_end=45"
+   ],
+   "code": 0,
+   "out": "note: stage_from cleared (it was for a battle stage)\nnote: background cleared (it was for a battle stage)\nnote: enemy_waves cleared (it was for a battle stage)\nnote: enemies cleared (it was for a battle stage)\nsaved W/ws/Scratch/Edits/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "preview_start=",
+    "preview_end=",
+    "end=",
+    "audio_from_video="
+   ],
+   "code": 0,
+   "out": "saved W/ws/Scratch/Edits/song.json\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "set",
+    "W/ws/Scratch/Edits",
+    "nokey"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "expected KEY=VALUE: nokey"
+  },
+  {
+   "args": [
+    "set"
+   ],
+   "code": 1,
+   "out": "",
+   "err": "usage"
+  },
+  {
+   "args": [
+    "info",
+    "W/ws"
+   ],
+   "code": 0,
+   "out": "workspace\tpath=W/ws\tsingle=0\ndlc\tfolder=W/ws/Pack Ü 1\tname=Pack Ü 1\tlabel=ToneTest\tauto_label=ToneTest\tseries=Tone Series\tlogo=W/ws/Pack Ü 1/logo.png\tlogo_wide=\tpackage=\tseries_id=\nsong\tdlc=W/ws/Pack Ü 1\tfolder=W/ws/Pack Ü 1/Tone Battle\ttitle=Tone Battle\tsort_name=tone battle\tauto_sort_name=tone battle\tstage=battle\tstart=0\tend=\tfade_out=0\tpreview_start=2\tpreview_end=12\tcopyright=Test\tauto_preview_start=2\tauto_preview_end=12\tchart_offset_ms=\taudio=W/ws/Pack Ü 1/Tone Battle/audio.wav\tmovie=\tjacket=W/ws/Pack Ü 1/Tone Battle/jacket.png\tthumbnail=\tlength=24\tid=\tclone=\taudio_from_video=0\tchecked=0\tstage_from=\tbackground=\tenemies=\tenemy_waves=\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=basic\tlevel=2\tnotes=10\tbpm=120\tfile=charts.json\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=expert\tlevel=5\tnotes=20\tbpm=120\tfile=charts.json\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=ultimate\tlevel=8\tnotes=40\tbpm=120\tfile=charts.json\nsong\tdlc=W/ws/Pack Ü 1\tfolder=W/ws/Pack Ü 1/Tone Field\ttitle=Tone Field\tsort_name=tone field\tauto_sort_name=tone field\tstage=field\tstart=0\tend=22.5\tfade_out=0\tpreview_start=\tpreview_end=\tcopyright=\tauto_preview_start=\tauto_preview_end=\tchart_offset_ms=\taudio=W/ws/Pack Ü 1/Tone Field/audio.wav\tmovie=\tjacket=\tthumbnail=\tlength=22.5\tid=\tclone=\taudio_from_video=0\tchecked=0\tstage_from=\tbackground=\tenemies=\tenemy_waves=\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=basic\tlevel=3\tnotes=9\tbpm=120\tfile=basic.json\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=expert\tlevel=6\tnotes=18\tbpm=120\tfile=expert.json\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=ultimate\tlevel=9\tnotes=36\tbpm=120\tfile=ultimate.json\ndlc\tfolder=W/ws/Scratch\tname=Scratch\tlabel=\tauto_label=Scratch\tseries=Scratch\tlogo=\tlogo_wide=\tpackage=\tseries_id=\nsong\tdlc=W/ws/Scratch\tfolder=W/ws/Scratch/Edits\ttitle=Ünï ☃\tsort_name=edits\tauto_sort_name=edits\tstage=field\tstart=1.5\tend=\tfade_out=1\tpreview_start=\tpreview_end=\tcopyright=\tauto_preview_start=\tauto_preview_end=\tchart_offset_ms=12\taudio=W/ws/Scratch/Edits/audio.mp3\tmovie=\tjacket=\tthumbnail=\tlength=\tid=\tclone=\taudio_from_video=0\tchecked=0\tstage_from=\tbackground=\tenemies=\tenemy_waves=\nissue\tlevel=warning\twhere=Pack Ü 1/Tone Field\tmessage=no jacket image: the template song's jacket is used\tdlc=W/ws/Pack Ü 1\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=\nissue\tlevel=warning\twhere=Scratch\tmessage=no logo.png: the series shows base series 13's logo\tdlc=W/ws/Scratch\tsong=\tdifficulty=\nissue\tlevel=warning\twhere=Scratch/Edits\tmessage=no jacket image: the template song's jacket is used\tdlc=W/ws/Scratch\tsong=W/ws/Scratch/Edits\tdifficulty=\nissue\tlevel=error\twhere=Scratch/Edits\tmessage=no basic chart (basic.json or charts.json)\tdlc=W/ws/Scratch\tsong=W/ws/Scratch/Edits\tdifficulty=\nissue\tlevel=error\twhere=Scratch/Edits\tmessage=no expert chart (expert.json or charts.json)\tdlc=W/ws/Scratch\tsong=W/ws/Scratch/Edits\tdifficulty=\nissue\tlevel=error\twhere=Scratch/Edits\tmessage=no ultimate chart (ultimate.json or charts.json)\tdlc=W/ws/Scratch\tsong=W/ws/Scratch/Edits\tdifficulty=\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "check",
+    "W/ws"
+   ],
+   "code": 1,
+   "out": "ToneTest/Tone Battle\n  audio  audio.wav\nToneTest/Tone Field\n  audio  audio.wav\nScratch/Edits\n  audio  audio.mp3\nToneTest  \"Pack Ü 1\"  DLCPACK0000100  series 200 \"Tone Series\" logo: logo.png\n  Tone Battle  MUSIC0000600  battle  \"Tone Battle\"  24.0 s\n      audio: audio.wav  jacket: jacket.png\n      basic L2 10 notes | expert L5 20 notes | ultimate L8 40 notes\n  Tone Field  MUSIC0000601  field  \"Tone Field\"  22.5 s\n      audio: audio.wav  jacket: -\n      basic L3 9 notes | expert L6 18 notes | ultimate L9 36 notes\nScratch  \"Scratch\"  DLCPACK0000101  series 201 \"Scratch\" logo: placeholder\n  Edits  MUSIC0000602  field  \"Ünï ☃\"  0.0 s\n      audio: audio.mp3  jacket: -\n      \nWARNING Pack Ü 1/Tone Field: no jacket image: the template song's jacket is used\nWARNING Scratch: no logo.png: the series shows base series 13's logo\nWARNING Scratch/Edits: no jacket image: the template song's jacket is used\nERROR   Scratch/Edits: no basic chart (basic.json or charts.json)\nERROR   Scratch/Edits: no expert chart (expert.json or charts.json)\nERROR   Scratch/Edits: no ultimate chart (ultimate.json or charts.json)\nWARNING Pack Ü 1/Tone Battle [expert]: last note 1500 ms before the song ends (under 2 s of outro)\nWARNING Pack Ü 1/Tone Battle [ultimate]: last note 1000 ms before the song ends (under 2 s of outro)\nWARNING Pack Ü 1/Tone Field [ultimate]: last note 1500 ms before the song ends (under 2 s of outro)\n3 error(s), 6 warning(s)\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "check",
+    "W/ws/Pack Ü 1"
+   ],
+   "code": 0,
+   "out": "ToneTest/Tone Battle\n  audio  audio.wav\nToneTest/Tone Field\n  audio  audio.wav\nToneTest  \"Pack Ü 1\"  DLCPACK0000100  series 200 \"Tone Series\" logo: logo.png\n  Tone Battle  MUSIC0000600  battle  \"Tone Battle\"  24.0 s\n      audio: audio.wav  jacket: jacket.png\n      basic L2 10 notes | expert L5 20 notes | ultimate L8 40 notes\n  Tone Field  MUSIC0000601  field  \"Tone Field\"  22.5 s\n      audio: audio.wav  jacket: -\n      basic L3 9 notes | expert L6 18 notes | ultimate L9 36 notes\nWARNING Pack Ü 1/Tone Field: no jacket image: the template song's jacket is used\nWARNING Pack Ü 1/Tone Battle [expert]: last note 1500 ms before the song ends (under 2 s of outro)\nWARNING Pack Ü 1/Tone Battle [ultimate]: last note 1000 ms before the song ends (under 2 s of outro)\nWARNING Pack Ü 1/Tone Field [ultimate]: last note 1500 ms before the song ends (under 2 s of outro)\n0 error(s), 4 warning(s)\n",
+   "err": ""
+  },
+  {
+   "args": [
+    "info",
+    "W/ws/Pack Ü 1"
+   ],
+   "code": 0,
+   "out": "workspace\tpath=W/ws/Pack Ü 1\tsingle=1\ndlc\tfolder=W/ws/Pack Ü 1\tname=Pack Ü 1\tlabel=ToneTest\tauto_label=ToneTest\tseries=Tone Series\tlogo=W/ws/Pack Ü 1/logo.png\tlogo_wide=\tpackage=\tseries_id=\nsong\tdlc=W/ws/Pack Ü 1\tfolder=W/ws/Pack Ü 1/Tone Battle\ttitle=Tone Battle\tsort_name=tone battle\tauto_sort_name=tone battle\tstage=battle\tstart=0\tend=\tfade_out=0\tpreview_start=2\tpreview_end=12\tcopyright=Test\tauto_preview_start=2\tauto_preview_end=12\tchart_offset_ms=\taudio=W/ws/Pack Ü 1/Tone Battle/audio.wav\tmovie=\tjacket=W/ws/Pack Ü 1/Tone Battle/jacket.png\tthumbnail=\tlength=24\tid=\tclone=\taudio_from_video=0\tchecked=1\tstage_from=\tbackground=\tenemies=\tenemy_waves=\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=basic\tlevel=2\tnotes=10\tbpm=120\tfile=charts.json\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=expert\tlevel=5\tnotes=20\tbpm=120\tfile=charts.json\nchart\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=ultimate\tlevel=8\tnotes=40\tbpm=120\tfile=charts.json\nsong\tdlc=W/ws/Pack Ü 1\tfolder=W/ws/Pack Ü 1/Tone Field\ttitle=Tone Field\tsort_name=tone field\tauto_sort_name=tone field\tstage=field\tstart=0\tend=22.5\tfade_out=0\tpreview_start=\tpreview_end=\tcopyright=\tauto_preview_start=\tauto_preview_end=\tchart_offset_ms=\taudio=W/ws/Pack Ü 1/Tone Field/audio.wav\tmovie=\tjacket=\tthumbnail=\tlength=22.5\tid=\tclone=\taudio_from_video=0\tchecked=1\tstage_from=\tbackground=\tenemies=\tenemy_waves=\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=basic\tlevel=3\tnotes=9\tbpm=120\tfile=basic.json\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=expert\tlevel=6\tnotes=18\tbpm=120\tfile=expert.json\nchart\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=ultimate\tlevel=9\tnotes=36\tbpm=120\tfile=ultimate.json\nissue\tlevel=warning\twhere=Pack Ü 1/Tone Field\tmessage=no jacket image: the template song's jacket is used\tdlc=W/ws/Pack Ü 1\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=\nissue\tlevel=warning\twhere=Pack Ü 1/Tone Battle [expert]\tmessage=last note 1500 ms before the song ends (under 2 s of outro)\tdlc=W/ws/Pack Ü 1\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=expert\nissue\tlevel=warning\twhere=Pack Ü 1/Tone Battle [ultimate]\tmessage=last note 1000 ms before the song ends (under 2 s of outro)\tdlc=W/ws/Pack Ü 1\tsong=W/ws/Pack Ü 1/Tone Battle\tdifficulty=ultimate\nissue\tlevel=warning\twhere=Pack Ü 1/Tone Field [ultimate]\tmessage=last note 1500 ms before the song ends (under 2 s of outro)\tdlc=W/ws/Pack Ü 1\tsong=W/ws/Pack Ü 1/Tone Field\tdifficulty=ultimate\n",
+   "err": ""
+  }
+ ],
+ "files": {
+  "Example/dlc.json": "{\n \"name\": \"Example\",\n \"series\": {\n  \"name\": \"Example\"\n }\n}",
+  "Example/My Song/basic.json": "{\n \"level\": 2,\n \"bpm\": 120,\n \"offset_ms\": 0,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"tap\",\n   \"lane\": 1\n  },\n  {\n   \"beat\": 6,\n   \"type\": \"hold\",\n   \"lane\": 1,\n   \"end_beat\": 8\n  }\n ]\n}",
+  "Example/My Song/expert.json": "{\n \"level\": 5,\n \"bpm\": 120,\n \"offset_ms\": 0,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"tap\",\n   \"lane\": 1\n  },\n  {\n   \"beat\": 5,\n   \"type\": \"slide\",\n   \"lane\": 2,\n   \"dir\": 90\n  }\n ]\n}",
+  "Example/My Song/song.json": "{\n \"title\": \"My Song\",\n \"sort_name\": \"my song\",\n \"stage\": \"battle\",\n \"start\": 0.0,\n \"end\": null,\n \"fade_out\": 1.0,\n \"preview\": [\n  30.0,\n  45.0\n ]\n}",
+  "Example/My Song/ultimate.json": "{\n \"level\": 9,\n \"bpm\": 120,\n \"offset_ms\": 0,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"twin\",\n   \"lane\": 1,\n   \"dir\": 270,\n   \"dir2\": 90,\n   \"critical\": true\n  }\n ]\n}",
+  "ws/Pack Ü 1/dlc.json": "{\n \"name\": \"Pack Ü 1\",\n \"series\": {\n  \"name\": \"Tone Series\"\n },\n \"label\": \"ToneTest\"\n}\n",
+  "ws/Pack Ü 1/Tone Battle/charts.json": "{\n \"bpm\": 120,\n \"beat0_ms\": 1500,\n \"levels\": {\n  \"basic\": 2,\n  \"expert\": 5,\n  \"ultimate\": 8\n },\n \"difficulties\": {\n  \"basic\": [\n   {\n    \"beat\": 4,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 8,\n    \"type\": \"hold\",\n    \"lane\": 1,\n    \"end_beat\": 9\n   },\n   {\n    \"beat\": 12,\n    \"type\": \"tap\",\n    \"lane\": 2\n   },\n   {\n    \"beat\": 16,\n    \"type\": \"hold\",\n    \"lane\": 3,\n    \"end_beat\": 17\n   },\n   {\n    \"beat\": 20,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 24,\n    \"type\": \"hold\",\n    \"lane\": 1,\n    \"end_beat\": 25\n   },\n   {\n    \"beat\": 28,\n    \"type\": \"tap\",\n    \"lane\": 2\n   },\n   {\n    \"beat\": 32,\n    \"type\": \"hold\",\n    \"lane\": 3,\n    \"end_beat\": 33\n   },\n   {\n    \"beat\": 36,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 40,\n    \"type\": \"hold\",\n    \"lane\": 1,\n    \"end_beat\": 41\n   }\n  ],\n  \"expert\": [\n   {\n    \"beat\": 4,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 6,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 8,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 9\n   },\n   {\n    \"beat\": 10,\n    \"type\": \"tap\",\n    \"lane\": 3\n   },\n   {\n    \"beat\": 12,\n    \"type\": \"slide\",\n    \"lane\": 0,\n    \"dir\": 0\n   },\n   {\n    \"beat\": 14,\n    \"type\": \"hold\",\n    \"lane\": 1,\n    \"end_beat\": 15\n   },\n   {\n    \"beat\": 16,\n    \"type\": \"tap\",\n    \"lane\": 2\n   },\n   {\n    \"beat\": 18,\n    \"type\": \"slide\",\n    \"lane\": 3,\n    \"dir\": 270\n   },\n   {\n    \"beat\": 20,\n    \"type\": \"hold\",\n    \"lane\": 0,\n    \"end_beat\": 21\n   },\n   {\n    \"beat\": 22,\n    \"type\": \"tap\",\n    \"lane\": 1\n   },\n   {\n    \"beat\": 24,\n    \"type\": \"slide\",\n    \"lane\": 2,\n    \"dir\": 180\n   },\n   {\n    \"beat\": 26,\n    \"type\": \"hold\",\n    \"lane\": 3,\n    \"end_beat\": 27\n   },\n   {\n    \"beat\": 28,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 30,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 32,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 33\n   },\n   {\n    \"beat\": 34,\n    \"type\": \"tap\",\n    \"lane\": 3\n   },\n   {\n    \"beat\": 36,\n    \"type\": \"slide\",\n    \"lane\": 0,\n    \"dir\": 0\n   },\n   {\n    \"beat\": 38,\n    \"type\": \"hold\",\n    \"lane\": 1,\n    \"end_beat\": 39\n   },\n   {\n    \"beat\": 40,\n    \"type\": \"tap\",\n    \"lane\": 2\n   },\n   {\n    \"beat\": 42,\n    \"type\": \"slide\",\n    \"lane\": 3,\n    \"dir\": 270\n   }\n  ],\n  \"ultimate\": [\n   {\n    \"beat\": 4,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 5,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 6,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 7\n   },\n   {\n    \"beat\": 7,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 8,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 9,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 10,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 11\n   },\n   {\n    \"beat\": 11,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 12,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 13,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 14,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 15\n   },\n   {\n    \"beat\": 15,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 16,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 17,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 18,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 19\n   },\n   {\n    \"beat\": 19,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 20,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 21,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 22,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 23\n   },\n   {\n    \"beat\": 23,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 24,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 25,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 26,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 27\n   },\n   {\n    \"beat\": 27,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 28,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 29,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 30,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 31\n   },\n   {\n    \"beat\": 31,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 32,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 33,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 34,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 35\n   },\n   {\n    \"beat\": 35,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 36,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 37,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 38,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 39\n   },\n   {\n    \"beat\": 39,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   },\n   {\n    \"beat\": 40,\n    \"type\": \"tap\",\n    \"lane\": 0\n   },\n   {\n    \"beat\": 41,\n    \"type\": \"slide\",\n    \"lane\": 1,\n    \"dir\": 90\n   },\n   {\n    \"beat\": 42,\n    \"type\": \"hold\",\n    \"lane\": 2,\n    \"end_beat\": 43\n   },\n   {\n    \"beat\": 43,\n    \"type\": \"twin\",\n    \"lane\": 3,\n    \"dir\": 0,\n    \"dir2\": 180\n   }\n  ]\n }\n}",
+  "ws/Pack Ü 1/Tone Battle/song.json": "{\n \"title\": \"Tone Battle\",\n \"sort_name\": \"tone battle\",\n \"stage\": \"battle\",\n \"start\": 0.0,\n \"end\": null,\n \"fade_out\": 0.0,\n \"preview\": [\n  2.0,\n  12.0\n ],\n \"copyright\": \"Test\"\n}\n",
+  "ws/Pack Ü 1/Tone Field/basic.json": "{\n \"level\": 3,\n \"bpm\": 120,\n \"offset_ms\": 1500,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 8,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 12,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 16,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 20,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 24,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 28,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 32,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 36,\n   \"type\": \"tap\",\n   \"lane\": 0\n  }\n ]\n}",
+  "ws/Pack Ü 1/Tone Field/expert.json": "{\n \"level\": 6,\n \"bpm\": 120,\n \"offset_ms\": 1500,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 6,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 8,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 10,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 12,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 14,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 16,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 18,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 20,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 22,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 24,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 26,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 28,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 30,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 32,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 34,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 36,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 38,\n   \"type\": \"tap\",\n   \"lane\": 6\n  }\n ]\n}",
+  "ws/Pack Ü 1/Tone Field/song.json": "{\n \"title\": \"Tone Field\",\n \"sort_name\": \"tone field\",\n \"stage\": \"field\",\n \"start\": 0.0,\n \"end\": 22.5,\n \"fade_out\": 0.0\n}\n",
+  "ws/Pack Ü 1/Tone Field/ultimate.json": "{\n \"level\": 9,\n \"bpm\": 120,\n \"offset_ms\": 1500,\n \"notes\": [\n  {\n   \"beat\": 4,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 5,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 6,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 7,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 8,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 9,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 10,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 11,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 12,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 13,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 14,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 15,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 16,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 17,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 18,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 19,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 20,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 21,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 22,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 23,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 24,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 25,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 26,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 27,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 28,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 29,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 30,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 31,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 32,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 33,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 34,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 35,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 36,\n   \"type\": \"tap\",\n   \"lane\": 0\n  },\n  {\n   \"beat\": 37,\n   \"type\": \"tap\",\n   \"lane\": 3\n  },\n  {\n   \"beat\": 38,\n   \"type\": \"tap\",\n   \"lane\": 6\n  },\n  {\n   \"beat\": 39,\n   \"type\": \"tap\",\n   \"lane\": 0\n  }\n ]\n}",
+  "ws/Scratch/dlc.json": "{\n \"name\": \"Scratch\",\n \"series\": {\n  \"name\": \"Scratch\"\n }\n}\n",
+  "ws/Scratch/Edits/song.json": "{\n \"title\": \"Ünï ☃\",\n \"sort_name\": \"edits\",\n \"stage\": \"field\",\n \"start\": 1.5,\n \"fade_out\": 1.0,\n \"chart_offset_ms\": 12\n}\n"
+ },
+ "build": {
+  "ToneTest/catalog.json": "9654c016d9d2f87482d530a7e508ea5a0c74d2cae5ce3a90cbd7fea9beb21980",
+  "ToneTest/dlcparam.json": "251408cbe45e2c423f1b381f7bcefceeb1acf45a433a8ee684bfe442bc218508",
+  "ToneTest/logo_SeriesLogo_en_128.bundle": "662f45436c9a1a9226e00f57de71c197ff4080898e80b4c2f1c6e4e86fd4e1f8",
+  "ToneTest/logo_SeriesLogo_en_1420.bundle": "23a49dcfa757877b3cf70c08f785c2fe452e6c0dd83f795e75bc679fca3a5978",
+  "ToneTest/logo_SeriesLogo_en_256.bundle": "528a2d60803282b72628ebb71fbfe7e27e1286db84b0b13003d964aa26296f62",
+  "ToneTest/logo_SeriesLogo_en_440.bundle": "7c6f2cc890c1074f43a501d086663f9e0f419d566e2fb210e6c37959ee7b4b95",
+  "ToneTest/logo_SeriesLogo_en_512.bundle": "0d1499f51cd4ec378da5bfbeb7d4a833a488588d2069b371e7de8e5e66b85f6c",
+  "ToneTest/logo_SeriesLogo_jp_128.bundle": "d4a75cebb59e178054d29bef34feed0adcba3bf22248637b55fcbb98f8a43745",
+  "ToneTest/logo_SeriesLogo_jp_1420.bundle": "82fb58eb7e59ff8cf0bebf19b1dbfccf74cd9f3d205a52839f760f641034d870",
+  "ToneTest/logo_SeriesLogo_jp_256.bundle": "da1fa37fa781f67ad1032ea89137b7de3b495408c45a9fe3d8b08d7347f240d1",
+  "ToneTest/logo_SeriesLogo_jp_440.bundle": "a41475e461f91504a3ddcb610104a42d462aba7ebf4bd57c92197de991cf6504",
+  "ToneTest/logo_SeriesLogo_jp_512.bundle": "37377e2db7b4c5081eecb4fd8b2a0c05bb78059333f82dc3aed03b2d01a520e4",
+  "ToneTest/song600_MUSIC0000600_MUSIC0000600_jp_128_png.bundle": "d04be277392ae776a11c8727bdf266830770128061f17d75a6f91f7a40051de2",
+  "ToneTest/song600_MUSIC0000600_MUSIC0000600_jp_256_png.bundle": "84025793c825c1c58839fb64b44ced1be1e3f0d7256adb0352f7eec4c1a23cef",
+  "ToneTest/song600_MUSIC0000600_MUSIC0000600_jp_512_png.bundle": "4420573abb9c94536ca9be6d89464a69a18fd7e9d9f6609d6f9d5b7007195e98",
+  "ToneTest/song600_music_preview_wav.bundle": "fb4c57b87e643a5a1f2a02db05cb33e942892efd1e462812058246d1b22425c1",
+  "ToneTest/song600_music_wav.bundle": "defaa3f4140524405db14f1846d1d7a0313e446d504de586d6c5cb8b59179be0",
+  "ToneTest/song600_trigger0101_bytes.bundle": "ce62dcb299b57e05b4e3fe854bd2c645aa48a02e6bf5d8d06cc826a83fa2f213",
+  "ToneTest/song600_trigger0201_bytes.bundle": "ebc47e858105220e56eefd808687d49fc7b16f5436c72958d56ecba094694f31",
+  "ToneTest/song600_trigger0301_bytes.bundle": "ce9213a2db9ad5ac7e6a4af29ccd565a431d850e786a868ab2fac44819ebe164",
+  "ToneTest/song601_MUSIC0000601_MUSIC0000601_jp_128_png.bundle": "fbbb8151d5a3c8dc8d204c8bbe67eb46d7d3df0e9b291dd8244cd43a7315514a",
+  "ToneTest/song601_MUSIC0000601_MUSIC0000601_jp_256_png.bundle": "2b0b13f6019aeacac8206b6456295a1acc2831134d503781a2a3737ae2f3e94e",
+  "ToneTest/song601_MUSIC0000601_MUSIC0000601_jp_512_png.bundle": "14fb5698454be478559595544193ba11e952f298d6dfd9b14141100e54e43ab5",
+  "ToneTest/song601_music_preview_wav.bundle": "ad326610ded3e5e6e0c8f3714ea7a0da5aff36a905b5f1c63b7ea40f8ecb5ca2",
+  "ToneTest/song601_music_wav.bundle": "86a410a31cd0c8f054a1448cf7c40b146e65a06ef255b5742760228b4062a070",
+  "ToneTest/song601_trigger0101_bytes.bundle": "f7576d30c6b6cc06626ff720834abfaa3541595b530591509628b27817af5856",
+  "ToneTest/song601_trigger0201_bytes.bundle": "cd8278ec4ee3ce2eeff1e112a9ba79bcb2010310327cf9eca742c10e561c6bfd",
+  "ToneTest/song601_trigger0301_bytes.bundle": "af95045390ff23db357afd1557f7a9e8c6a54268daa81cbe7ee946f2f96c7ab0",
+  "ToneTest/table_BMSBackGroundTable.bundle": "67ff45be4cb551f04c6fed16a971d05d254a9b3e34a39f1fb6d9598f97743603",
+  "ToneTest/table_DLCMusicTable.bundle": "a9b5e7142e42d0435b7a3fd408e06d6bf23889b35a8cafd7825a4a19877618c0",
+  "ToneTest/table_DLCPackTable.bundle": "7603e871a7dd1ea7af4ab1e0c8e73d77a0928a6536343b6dc9cd8d1a71b115f1",
+  "ToneTest/table_MonsterPackTable.bundle": "d06c132afe17bef82ceb0a037807f0fac6682c31938ab2e9f1b2713412226ac4",
+  "ToneTest/table_MusicTable.bundle": "88845b1e5c9d812ab739132a07b9cbd1423443c1d0a4ea002a6d854702f0427e",
+  "ToneTest/table_QuestSquareTable.bundle": "c380f376539ef4f429905f237d8ec0eb1a86d9c2f38c9f71987b40c357980f07",
+  "ToneTest/table_QuestTable.bundle": "1d3f297ed79359369a1517382b49adf7bb0599bdf0a981649d9c8a7fd7c3a5c8",
+  "ToneTest/table_SeriesTable.bundle": "10028e348b2673631b0f0805398eb58b7762a33b9a9c11b6255c4ab877545517",
+  "ToneTest/table_SoundTable.bundle": "4a80d141ba0d462477611c9ad063d69492d4466d5c1c592abf6a7381e7ebec32",
+  "ToneTest/table_TheaterTable.bundle": "ac1c6bb8f8108f2b2ae38c28c38b014723023328b7db954326fe1c530411d1e4",
+  "ToneTest/text_MusicTable.bundle": "2daf79aae749e5503a464930896c4ef6380bfb46a0c3f4b189d4a6d9ce341752",
+  "ToneTest/text_Table_DLCPack.bundle": "a1733859c38592795c10ab8b8d44b6f2bb801193fcf8f5ed23ae860d6f206f59",
+  "ToneTest/text_Table_MusicDLC.bundle": "2a9365451d09c4b4d5c6da38a3e55b3774491d08b9807c68353f77c1c5e3362b",
+  "ToneTest/text_Table_PersonalName.bundle": "c2732e862a9fb60c5ed99dc3a685dcf7a2f427ed8dfc895bffffa130dad9e23a",
+  "ToneTest/text_Table_Series.bundle": "c62811ea48a650895e79888b3fb0ec598b30f42a366ef54175d23be631d346f0"
+ }
+}

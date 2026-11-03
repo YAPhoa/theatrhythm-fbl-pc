@@ -43,7 +43,8 @@ void theatrhythm_display_settings_open(void);
 int theatrhythm_display_settings_is_open(void);
 /* The Options menu's Display Settings page (runtime_display_page.c). get: a setting's value (window
  * mode 0 windowed, 1 borderless, 2 fullscreen; resolution: index into the sizes, largest first;
- * VSync 0/1; frame rate limit in FPS, 0 none). set applies at once (the window follows on its next
+ * VSync 0/1, off keeping the tearing choice; frame rate limit in FPS, 0 one per vblank, -1 unlimited).
+ * set applies at once (the window follows on its next
  * event poll). resolution: the count of sizes, and size `index` when it exists. save: settings.ini. */
 /* THEATRHYTHM_DISPLAY_RENDER_4K: render_resolution for the next start, 1 for 4k. */
 enum { THEATRHYTHM_DISPLAY_MODE, THEATRHYTHM_DISPLAY_RESOLUTION, THEATRHYTHM_DISPLAY_VSYNC, THEATRHYTHM_DISPLAY_FPS_LIMIT,
@@ -77,6 +78,8 @@ int theatrhythm_gpu_audio_channels(void);
 unsigned theatrhythm_gpu_symbol_count(void);
 /* Yields of threads waiting for guest memory copies (CPU report). */
 unsigned long long theatrhythm_gpu_copy_yields(void);
+/* Frames handed to the presenter since start (hang dump). */
+unsigned long long theatrhythm_gpu_flips(void);
 /* Trophy unlocked (any thread): its name as a notice in the corner. The other arguments are kept
  * for the runtime's call: id, description and PNG icon. */
 void theatrhythm_gpu_toast_trophy(int id, const char *title, const char *detail, const unsigned char *png,

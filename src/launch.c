@@ -225,9 +225,13 @@ int launch_from_paths_ini(int *argc, char ***argv) {
         }
     }
 
-    char config[PATH_CHARS];
-    snprintf(config, sizeof config, "%s" SEP "settings.ini", exe_dir);
+    /* settings.ini: the save folder's, so the options move with the saves (the in-game pages write
+     * there); until it has one, the one the setup wrote next to the exe is read. */
+    char config[PATH_CHARS], config_default[PATH_CHARS];
+    snprintf(config, sizeof config, "%s" SEP "settings.ini", save);
+    snprintf(config_default, sizeof config_default, "%s" SEP "settings.ini", exe_dir);
     set_env("THEATRHYTHM_CONFIG", config);
+    set_env("THEATRHYTHM_CONFIG_DEFAULT", config_default);
     /* Before anything asks the GPU library for its folders (shadps4 common/path_util.cpp). */
     set_env("THEATRHYTHM_GPU_USER_DIR", cache);
 

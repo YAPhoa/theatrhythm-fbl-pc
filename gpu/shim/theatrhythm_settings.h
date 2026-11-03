@@ -42,6 +42,9 @@ struct Values {
     /// borderless by default, so the picture is scaled to the desktop resolution.
     std::atomic<int> display_mode{TheatrhythmGraphics::Borderless};
     std::atomic<bool> vsync{true};
+    /// With VSync off: present at once, tearing allowed (Vulkan Immediate), instead of the newest
+    /// frame at each refresh (Mailbox, which some drivers hold to twice the refresh rate).
+    std::atomic<bool> tearing{false};
     /// SDL display index the window opens on, -1 the primary (key monitor, THEATRHYTHM_MONITOR).
     std::atomic<int> monitor{-1};
     int startup_monitor = -1;
@@ -52,7 +55,7 @@ struct Values {
     std::atomic<int> window_width{1920}, window_height{1080};
     /// Sizes the start display offers (largest first), listed before the guest starts.
     std::vector<std::pair<int, int>> resolutions;
-    /// Present rate limit, 0 paced by the vblank (TheatrhythmGraphics::FpsLimits).
+    /// Present rate limit, 0 paced by the vblank, FpsUnlimited none (TheatrhythmGraphics::FpsLimits).
     std::atomic<int> fps_limit{0};
     std::atomic<bool> async_shaders{true};
     /// GPU frames a draw may be skipped while its shader or pipeline compiles asynchronously; then
@@ -90,8 +93,9 @@ Values& Get();
 /// Reads the file, then the environment overrides. Called once at start.
 void Load();
 
-/// Writes the display keys (display_mode, monitor, window, vsync, fps_limit, frames_queued, anisotropy,
-/// render_resolution) into the file in place: their lines are replaced, missing ones appended, the rest kept.
+/// Writes the display keys (display_mode, monitor, window, vsync, tearing, fps_limit, frames_queued,
+/// anisotropy, render_resolution) into Path() in place: their lines are replaced, missing ones
+/// appended, the rest kept (from the default file until Path() exists).
 void SaveDisplay();
 
 } // namespace TheatrhythmSettings

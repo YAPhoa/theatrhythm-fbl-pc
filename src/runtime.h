@@ -48,10 +48,19 @@ void runtime_memory_invalidate(uintptr_t address, uint64_t size);
 enum { BUTTON_ICONS_PS4, BUTTON_ICONS_XBOX, BUTTON_ICONS_KEYBOARD, BUTTON_ICONS_SETS };
 void runtime_button_icons_configure(const char *folder, const char *mode);
 void runtime_button_icons_input(int set);
-/* Display Settings in the game's Options menu (runtime_display_page.c): hooks the game's code in the
+/* Display Settings in the game's Options menu, and all nine display languages on its Language page
+ * (runtime_display_page.c): hooks the game's code in the
  * image (still writable), with stubs written to `stubs` (`size` bytes, within rel32 reach of it);
  * `monitor_icon`: the Config atlas bundle with the button's icon is mounted. 0 when installed. */
 int runtime_display_page_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int monitor_icon);
+/* The party's walk on field stages at any frame rate (runtime_field_walk.c): StageCharacter's
+ * motion check measures movement in 60ths of a second, with its stub written to `stubs` (`size`
+ * bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_field_walk_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The "DLC songs added" window without an empty bonus row (runtime_dlc_bonus.c): BonusItemDisplay
+ * hides itself for a count of 0, with its stub written to `stubs` (`size` bytes, within rel32 reach
+ * of the image, which is still writable). 0 when installed. */
+int runtime_dlc_bonus_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);

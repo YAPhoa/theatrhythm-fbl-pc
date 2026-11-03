@@ -19,6 +19,17 @@ const char* Path() {
     return env && env[0] ? env : "settings.ini";
 }
 
+// The file read: Path() when it exists, else THEATRHYTHM_CONFIG_DEFAULT (the launcher's: the one the
+// setup wrote next to the exe, while Path() is the save folder's). Writes always go to Path().
+const char* ReadPath() {
+    if (FILE* file = std::fopen(Path(), "r")) {
+        std::fclose(file);
+        return Path();
+    }
+    const char* fallback = std::getenv("THEATRHYTHM_CONFIG_DEFAULT");
+    return fallback && fallback[0] ? fallback : Path();
+}
+
 bool Truthy(std::string_view value) {
     std::string lower;
     for (const char c : value) lower += char(std::tolower(static_cast<unsigned char>(c)));
@@ -31,6 +42,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.display_mode = TheatrhythmGraphics::ParseDisplayMode(value);
     } else if (key == "vsync") {
         v.vsync = Truthy(value);
+    } else if (key == "tearing") {
+        v.tearing = Truthy(value);
     } else if (key == "monitor") {
         v.monitor = TheatrhythmGraphics::ParseMonitor(value);
     } else if (key == "window") {
@@ -38,7 +51,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.window_width = w;
         v.window_height = h;
     } else if (key == "fps_limit") {
-        v.fps_limit = TheatrhythmGraphics::ParseFpsLimit(i);
+        v.fps_limit = value == "unlimited" ? TheatrhythmGraphics::FpsUnlimited : TheatrhythmGraphics::ParseFpsLimit(i);
     } else if (key == "async_shaders") {
         v.async_shaders = Truthy(value);
     } else if (key == "async_shaders_skip_frames") {
@@ -86,7 +99,8 @@ Values& Get() {
 
 void Load() {
     auto& v = Get();
-    if (FILE* file = std::fopen(Path(), "r")) {
+    const char* path = ReadPath();
+    if (FILE* file = std::fopen(path, "r")) {
         char line[1024];
         while (std::fgets(line, sizeof(line), file)) {
             std::string text{line};
@@ -98,10 +112,12 @@ void Load() {
             Set(v, text.substr(0, eq), text.substr(eq + 1));
         }
         std::fclose(file);
-        std::printf("Settings: %s\n", Path());
+        std::printf("Settings: %s\n", path);
+        if (std::string_view(path) != Path()) std::printf("Settings: changes are saved to %s\n", Path());
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"THEATRHYTHM_DISPLAY_MODE", "display_mode"}, {"THEATRHYTHM_VSYNC", "vsync"},
+        {"THEATRHYTHM_TEARING", "tearing"},
         {"THEATRHYTHM_MONITOR", "monitor"},           {"THEATRHYTHM_WINDOW", "window"},
         {"THEATRHYTHM_ASYNC_SHADERS", "async_shaders"}, {"THEATRHYTHM_FRAMES_AHEAD", "frames_queued"},
         {"THEATRHYTHM_ASYNC_SHADERS_SKIP_FRAMES", "async_shaders_skip_frames"},
@@ -129,13 +145,15 @@ void SaveDisplay() {
         {"monitor", monitor < 0 ? std::string() : std::to_string(monitor)},
         {"window", std::to_string(v.window_width.load()) + "x" + std::to_string(v.window_height.load())},
         {"vsync", v.vsync ? "1" : "0"},
-        {"fps_limit", std::to_string(v.fps_limit.load())},
+        {"tearing", v.tearing ? "1" : "0"},
+        {"fps_limit", v.fps_limit == TheatrhythmGraphics::FpsUnlimited ? "unlimited" : std::to_string(v.fps_limit.load())},
         {"frames_queued", std::to_string(v.frames_queued.load())},
         {"anisotropy", std::to_string(v.anisotropy.load())},
         {"render_resolution", std::string(RenderResolutionKeys[std::clamp(v.render_resolution.load(), 0, RenderResolutionCount - 1)])},
     };
+    // The first save copies the default file (its comments and other keys) into Path().
     std::vector<std::string> lines;
-    if (FILE* file = std::fopen(Path(), "r")) {
+    if (FILE* file = std::fopen(ReadPath(), "r")) {
         char line[1024];
         while (std::fgets(line, sizeof(line), file)) {
             std::string text{line};

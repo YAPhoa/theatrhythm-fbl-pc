@@ -10,6 +10,7 @@
 
 u32 TheatrhythmDisplayRefreshHz(); // theatrhythm_gpu.cpp: primary display refresh rate, 60 when unknown
 double TheatrhythmWindowRefreshRate(); // theatrhythm_gpu.cpp: exact rate of the window's display, 0 when unknown
+bool TheatrhythmWaitForVblank(); // theatrhythm_gpu.cpp: waits for the window's display to start a refresh; false when it cannot (not Windows)
 extern "C" int theatrhythm_render_4k(void); // theatrhythm_settings.cpp: render_resolution=4k
 inline bool TheatrhythmRender4k() { return theatrhythm_render_4k() != 0; }
 

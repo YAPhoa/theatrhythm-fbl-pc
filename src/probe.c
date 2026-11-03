@@ -16,7 +16,10 @@
 #include "launch.h"
 #ifdef _WIN32
 #include <windows.h>
+#include <tlhelp32.h>
 #else
+#include <pthread.h>
+#include <dirent.h>
 #include <sys/mman.h>
 #include <malloc.h>
 #include <unistd.h>
@@ -320,11 +323,9 @@ static void dump_frames(ucontext_t *uc) {
     }
 }
 static void thread_dump(int sig, siginfo_t *info, void *context) { (void)sig; (void)info; dump_frames(context); }
-static void watchdog(int sig, siginfo_t *info, void *context) {
-    (void)info;
-    const char head[]="STOP: watchdog timeout; thread stacks:\n";
-    { ssize_t written_=write(2,head,sizeof(head)-1); (void)written_; }
-    dump_frames(context);
+/* Every other thread prints its frames (SIGUSR2, thread_dump). `named`: its name and tid first
+ * (not from a signal handler: snprintf is not async-signal-safe). */
+static void dump_other_threads(int named) {
     int dir=open("/proc/self/task",O_RDONLY|O_DIRECTORY);
     char buffer[4096];
     long n;
@@ -333,21 +334,168 @@ static void watchdog(int sig, siginfo_t *info, void *context) {
         for (long at=0; at<n;) {
             struct { uint64_t ino; int64_t off; unsigned short reclen; unsigned char type; char name[]; } *d=(void *)(buffer+at);
             pid_t tid=(pid_t)strtol(d->name,NULL,10);
-            if (tid>0 && tid!=self) { syscall(SYS_tgkill,getpid(),tid,SIGUSR2); usleep(20000); }
+            if (tid>0 && tid!=self) {
+                if (named) {
+                    char path[64], comm[32]="?";
+                    snprintf(path,sizeof(path),"/proc/self/task/%d/comm",(int)tid);
+                    int fd=open(path,O_RDONLY);
+                    ssize_t got=fd>=0 ? read(fd,comm,sizeof(comm)-1) : -1;
+                    if (fd>=0) close(fd);
+                    if (got>0) comm[got-(comm[got-1]=='\n')]=0;
+                    fprintf(stderr,"Hang:   thread '%s' (tid %d, 0x%x):\n",comm,(int)tid,(unsigned)tid);
+                }
+                syscall(SYS_tgkill,getpid(),tid,SIGUSR2); usleep(20000);
+            }
             at+=d->reclen;
         }
+    if (dir>=0) close(dir);
+}
+static void watchdog(int sig, siginfo_t *info, void *context) {
+    (void)info;
+    const char head[]="STOP: watchdog timeout; thread stacks:\n";
+    { ssize_t written_=write(2,head,sizeof(head)-1); (void)written_; }
+    dump_frames(context);
+    dump_other_threads(0);
     usleep(100000);
     _exit(128 + sig);
 }
+static void hang_dump(unsigned seconds) {
+    fprintf(stderr,"Hang: no new frame for %u s; each thread's frames follow (image-relative: guest offset, "
+            "host-relative: offset in the exe; THEATRHYTHM_HANG_DUMP=0 turns this off)\n",seconds);
+    dump_other_threads(1);
+    usleep(100000);
+    fprintf(stderr,"Hang: end of thread stacks\n");
+}
 #else
+/* Frames of a thread from its registers: host code unwinds through its .pdata (a function without
+ * any is a leaf: the return address is at rsp), guest code through its rbp chain. Every step stays
+ * on committed memory of the stack it started on, so a stack that changes under the walk ends it
+ * instead of faulting. */
+enum { HANG_FRAMES = 24 };
+static int stack_readable(uintptr_t address, void *stack) {
+    MEMORY_BASIC_INFORMATION info;
+    if (!VirtualQuery((void *)address,&info,sizeof(info)) || info.State!=MEM_COMMIT || info.AllocationBase!=stack) return 0;
+    return !(info.Protect&(PAGE_GUARD|PAGE_NOACCESS));
+}
+static int thread_frames(CONTEXT *c, uintptr_t *out) {
+    MEMORY_BASIC_INFORMATION info;
+    void *stack=VirtualQuery((void *)(uintptr_t)c->Rsp,&info,sizeof(info)) ? info.AllocationBase : NULL;
+    int n=0;
+    while (n<HANG_FRAMES && c->Rip) {
+        out[n++]=(uintptr_t)c->Rip;
+        const DWORD64 rsp=c->Rsp;
+        if (!stack || !stack_readable(rsp,stack) || !stack_readable(rsp+512,stack)) break;
+        DWORD64 base=0;
+        const int guest=image && c->Rip-(uintptr_t)image<0x20000000;
+        PRUNTIME_FUNCTION function=guest ? NULL : RtlLookupFunctionEntry(c->Rip,&base,NULL);
+        if (function) {
+            void *handler_data; DWORD64 establisher;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER,base,c->Rip,function,c,&handler_data,&establisher,NULL);
+        } else if (guest) {
+            if (c->Rbp<rsp || !stack_readable(c->Rbp,stack) || !stack_readable(c->Rbp+15,stack)) break;
+            const DWORD64 *frame=(const DWORD64 *)(uintptr_t)c->Rbp;
+            c->Rip=frame[1]; c->Rsp=c->Rbp+16; c->Rbp=frame[0];
+        } else {
+            c->Rip=*(const DWORD64 *)(uintptr_t)rsp; c->Rsp=rsp+8;
+        }
+        if (c->Rsp<=rsp) break;
+    }
+    return n;
+}
+/* Every other thread: name, tid, CPU time and frames, one line each. A thread is suspended only to
+ * read its registers; its stack is read after it resumes (a hung thread's does not change). */
+static void dump_threads(void) {
+    HANDLE snap=CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD,0);
+    if (snap==INVALID_HANDLE_VALUE) return;
+    THREADENTRY32 entry={.dwSize=sizeof(entry)};
+    const DWORD pid=GetCurrentProcessId(), self=GetCurrentThreadId();
+    for (BOOL ok=Thread32First(snap,&entry);ok;ok=Thread32Next(snap,&entry)) {
+        if (entry.th32OwnerProcessID!=pid || entry.th32ThreadID==self) continue;
+        HANDLE h=OpenThread(THREAD_SUSPEND_RESUME|THREAD_GET_CONTEXT|THREAD_QUERY_LIMITED_INFORMATION,FALSE,entry.th32ThreadID);
+        if (!h) continue;
+        CONTEXT c;
+        memset(&c,0,sizeof(c));
+        c.ContextFlags=CONTEXT_FULL;
+        BOOL got=FALSE;
+        if (SuspendThread(h)!=(DWORD)-1) { got=GetThreadContext(h,&c); ResumeThread(h); }
+        char name[64]="";
+        PWSTR wide=NULL;
+        if (SUCCEEDED(GetThreadDescription(h,&wide)) && wide) {
+            WideCharToMultiByte(CP_UTF8,0,wide,-1,name,sizeof(name),NULL,NULL);
+            LocalFree(wide);
+        }
+        FILETIME created,exited,kernel,user;
+        double ms=0;
+        if (GetThreadTimes(h,&created,&exited,&kernel,&user))
+            ms=(double)((((uint64_t)kernel.dwHighDateTime<<32)|kernel.dwLowDateTime)+(((uint64_t)user.dwHighDateTime<<32)|user.dwLowDateTime))/1e4;
+        CloseHandle(h);
+        uintptr_t frames[HANG_FRAMES];
+        const int n=got ? thread_frames(&c,frames) : 0;
+        char line[HANG_FRAMES*(MAX_PATH+8)+256], where[MAX_PATH+64];
+        int used=snprintf(line,sizeof(line),"Hang:   '%s' (tid %lu, %.0f ms CPU):",name[0] ? name : "?",entry.th32ThreadID,ms);
+        for (int i=0;i<n && used>0 && (size_t)used<sizeof(line);++i) {
+            describe_address(where,sizeof(where),frames[i]);
+            used+=snprintf(line+used,sizeof(line)-(size_t)used,"%s %s",i ? " <" : "",where);
+        }
+        if (!n) snprintf(line+used,sizeof(line)-(size_t)used," (no registers)");
+        fprintf(stderr,"%s\n",line);
+    }
+    CloseHandle(snap);
+}
+static void hang_dump(unsigned seconds) {
+    fprintf(stderr,"Hang: no new frame for %u s; each thread's frames follow, innermost first "
+            "(THEATRHYTHM_HANG_DUMP=0 turns this off)\n",seconds);
+    dump_threads();
+    fprintf(stderr,"Hang: end of thread stacks\n");
+    fflush(NULL);
+}
 static DWORD WINAPI watchdog_thread(void *seconds) {
     Sleep(*(unsigned *)seconds*1000u);
-    fprintf(stderr,"STOP: watchdog timeout after %u s\n",*(unsigned *)seconds);
+    fprintf(stderr,"STOP: watchdog timeout after %u s; thread stacks:\n",*(unsigned *)seconds);
+    dump_threads();
     runtime_report();
     fflush(NULL);
     _exit(128+14);
 }
 #endif
+/* Hang dump (THEATRHYTHM_HANG_DUMP=seconds, default 20, 0 off): once a frame has been shown, a
+ * picture held that long logs every thread's frames, once until frames move again. Players' logs
+ * then show where a frozen game waits. */
+static unsigned hang_seconds;
+static void hang_watch_loop(void) {
+    unsigned long long last=0;
+    unsigned held=0;
+    int dumped=0;
+    for (;;) {
+#ifdef _WIN32
+        Sleep(1000);
+#else
+        sleep(1);
+#endif
+        const unsigned long long shown=theatrhythm_gpu_flips();
+        if (shown!=last) { last=shown; held=0; dumped=0; continue; }
+        if (!shown || dumped || ++held<hang_seconds) continue;
+        hang_dump(hang_seconds);
+        dumped=1;
+    }
+}
+#ifdef _WIN32
+static DWORD WINAPI hang_watch(void *unused) { (void)unused; SetThreadDescription(GetCurrentThread(),L"theatrhythm:HangWatch"); hang_watch_loop(); return 0; }
+#else
+static void *hang_watch(void *unused) { (void)unused; pthread_setname_np(pthread_self(),"HangWatch"); hang_watch_loop(); return NULL; }
+#endif
+static void start_hang_watch(void) {
+    const char *env=getenv("THEATRHYTHM_HANG_DUMP");
+    hang_seconds=env && *env ? (unsigned)strtoul(env,NULL,10) : 20;
+    if (!hang_seconds) return;
+#ifdef _WIN32
+    HANDLE h=CreateThread(NULL,0,hang_watch,NULL,0,NULL);
+    if (h) CloseHandle(h);
+#else
+    pthread_t thread;
+    if (!pthread_create(&thread,NULL,hang_watch,NULL)) pthread_detach(thread);
+#endif
+}
 /* param.sfo lookup: string or integer value of key, 0 when absent. */
 static int sfo_value(const char *path, const char *key, char *text, size_t text_size, uint32_t *number) {
     FILE *f=fopen(path,"rb");
@@ -602,8 +750,8 @@ int main(int argc, char **argv) {
         if (!SetProcessMitigationPolicy(ProcessStrictHandleCheckPolicy,&strict,sizeof(strict)))
             fprintf(stderr,"THEATRHYTHM_STRICT_HANDLES: policy not set (%lu)\n",GetLastError());
     }
-    /* Watchdog: after --timeout seconds print the runtime report and end, as SIGALRM does below
-     * (no per-thread stacks on Windows). 0 disables it. */
+    /* Watchdog: after --timeout seconds print every thread's frames and the runtime report and
+     * end, as SIGALRM does below. 0 disables it. */
     static unsigned watchdog_seconds;
     watchdog_seconds=timeout_seconds;
     if (watchdog_seconds) CloseHandle(CreateThread(NULL,0,watchdog_thread,&watchdog_seconds,0,NULL));
@@ -763,8 +911,9 @@ int main(int argc, char **argv) {
     if (!isa_table && cpu_missing_sets) { printf("STOP: this CPU lacks %s and no rewrite table matches the image\n", missing); return 20; }
     /* The stubs follow the image in the same low mapping (rel32 jmps reach them). */
     size_t stub_area = isa_table ? round_page(isa_stub_area_size(isa_table)) : 0;
-    /* One more page after them: the Display Settings page's hook stubs (runtime_display_page.c). */
-    image = allocate(round_page(size) + stub_area + page_size);
+    /* Three more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
+     * the field walk's stub (runtime_field_walk.c) and the DLC bonus row's (runtime_dlc_bonus.c). */
+    image = allocate(round_page(size) + stub_area + 3 * page_size);
     printf("Runtime: guest image at %p (guest offsets are relative to it)\n", (void *)image);
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
@@ -787,6 +936,7 @@ int main(int argc, char **argv) {
         gpu_enabled=1; /* page tracking starts while the rasterizer registers guest memory */
         if (theatrhythm_gpu_init(&gpu)) fail("GPU initialization failed");
         printf("GPU: window and Vulkan presenter ready; SDK 0x%08x, %u HLE symbols\n",(unsigned)sdk,theatrhythm_gpu_symbol_count());
+        start_hang_watch();
         if (app0) configure_button_icons(argv[1]); /* settings are read by theatrhythm_gpu_init */
         if (app0) monitor_icon = mount_config_icon(argv[1]);
         if (theatrhythm_render_4k()) {
@@ -846,6 +996,16 @@ int main(int argc, char **argv) {
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_display_page_install(image, modules[m].base, hook_stub, page_size, monitor_icon))
                 protect(hook_stub, page_size, 5);
+        unsigned char *walk_stub = hook_stub + page_size;
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
+                !runtime_field_walk_install(image, modules[m].base, walk_stub, page_size))
+                protect(walk_stub, page_size, 5);
+        unsigned char *bonus_stub = walk_stub + page_size;
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
+                !runtime_dlc_bonus_install(image, modules[m].base, bonus_stub, page_size))
+                protect(bonus_stub, page_size, 5);
     }
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
