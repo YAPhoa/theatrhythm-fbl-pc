@@ -15,6 +15,7 @@
 #include <SDL3/SDL.h>
 
 #include "sdl_window.h"
+#include "theatrhythm_settings.h"
 
 // Stubs for overlay functions referenced by WindowSDL when linked in tests
 namespace TheatrhythmOverlay {
@@ -183,6 +184,20 @@ int main() {
         assert(!window.IsMinimized());
         assert(window.GetWidth() > 0);
         assert(window.GetHeight() > 0);
+
+        auto& settings = TheatrhythmSettings::Get();
+        settings.close_on_f4 = false;
+        SDL_Event f4{};
+        f4.type = SDL_EVENT_KEY_DOWN;
+        f4.key.key = SDLK_F4;
+        assert(SDL_PushEvent(&f4));
+        window.PollEvents();
+        assert(window.IsOpen());
+
+        settings.close_on_f4 = true;
+        assert(SDL_PushEvent(&f4));
+        window.PollEvents();
+        assert(!window.IsOpen());
         std::printf("[PRODUCTION] WindowSDL correctly cleared minimized state on return to visible.\n");
 
         live_sdl_test_executed = true;

@@ -55,6 +55,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.key_map = value;
     } else if (key == "menu_confirm_swap") {
         v.menu_confirm_swap = Truthy(value) || value == "circle" ? 1 : 0;
+    } else if (key == "close_on_f4") {
+        v.close_on_f4 = Truthy(value);
     } else if (key == "master_volume") {
         v.master_volume = value.empty() ? MasterVolumeDefault : std::clamp(i, MasterVolumeMin, MasterVolumeMax);
     } else if (key == "audio_channels") {
@@ -107,7 +109,7 @@ void Load() {
         {"THEATRHYTHM_ASYNC_SHADERS_SKIP_FRAMES", "async_shaders_skip_frames"},
         {"THEATRHYTHM_ANISOTROPY", "anisotropy"},     {"THEATRHYTHM_VIBRATION", "vibration"},
         {"THEATRHYTHM_AUDIO_VOLUME", "master_volume"}, {"THEATRHYTHM_AUDIO_CHANNELS", "audio_channels"},
-        {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"},
+        {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"}, {"THEATRHYTHM_CLOSE_ON_F4", "close_on_f4"},
         {"THEATRHYTHM_PAD_MAP", "pad_map"},       {"THEATRHYTHM_KEY_MAP", "key_map"},
         {"THEATRHYTHM_BUTTON_ICONS", "button_icons"}, {"THEATRHYTHM_RENDER_RESOLUTION", "render_resolution"},
     };

@@ -272,6 +272,11 @@ bool WindowSDL::PollEvents() {
     }
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F4 && !event.key.repeat &&
+            TheatrhythmSettings::Get().close_on_f4.load(std::memory_order_relaxed)) {
+            is_open = false;
+            continue;
+        }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
             if (event.type == SDL_EVENT_TEXT_INPUT) {
