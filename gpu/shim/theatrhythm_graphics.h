@@ -17,8 +17,9 @@ inline constexpr std::array<std::string_view, DisplayModeCount> DisplayModeKeys 
 inline constexpr std::array<const char*, DisplayModeCount> DisplayModeNames = {
     "Windowed", "Borderless", "Fullscreen"};
 
-/// Present rate limits; 0 = paced by the vblank.
-inline constexpr std::array<int, 8> FpsLimits = {30, 60, 100, 120, 144, 180, 240, 0};
+/// Present rate limits; FpsUnlimited = none (as fast as the game makes frames), 0 = paced by the vblank.
+inline constexpr int FpsUnlimited = -1;
+inline constexpr std::array<int, 9> FpsLimits = {30, 60, 100, 120, 144, 180, 240, FpsUnlimited, 0};
 
 template <typename T, std::size_t N>
 constexpr int IndexOf(const std::array<T, N>& values, const T& value, int fallback) {

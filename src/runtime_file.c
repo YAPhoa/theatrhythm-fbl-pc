@@ -33,7 +33,7 @@ typedef struct stat HostStat;
 #endif
 #define ERR(n) ((int32_t)(UINT32_C(0x80020000)|(n)))
 #define MAX_FILES 1024
-#define MAX_MOUNTS 32  /* game, user, SaveData mounts, the button and Config icon bundles (2 each), --mount */
+#define MAX_MOUNTS 256 /* game, user, SaveData mounts, the button and Config icon bundles (2 each), --mount, add-on StreamingAssets files (2 each) */
 
 typedef struct { int64_t sec, nsec; } GuestTimespec;
 typedef struct {
@@ -489,7 +489,8 @@ static int64_t do_stat(const char *guest,GuestStat *out) {
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
     if (!out) return -EFAULT;
-    if (host_stat(path,&s)) return -errno;
+    if (host_stat(path,&s)) { e=errno; if (file_trace() && !game_path(guest)) printf("File trace: stat(%s) -> errno %d\n",guest,e); return -e; }
+    if (file_trace() && !game_path(guest)) printf("File trace: stat(%s) -> %lld bytes\n",guest,(long long)s.st_size);
     convert_stat(&s,out);
 #ifdef _WIN32
     path_identity(path,out);

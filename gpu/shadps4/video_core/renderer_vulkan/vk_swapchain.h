@@ -88,8 +88,8 @@ public:
 
     void SetHDR(bool hdr);
 
-    /// theatrhythm: VSync from the in-game menu (TheatrhythmSettings::vsync); recreates the swapchain when it
-    /// changed. Present thread only.
+    /// theatrhythm: VSync and tearing from the in-game menus (TheatrhythmSettings::vsync, tearing);
+    /// recreates the swapchain when they changed. Present thread only.
     void UpdateVsync();
 
     bool GetHDR() const {
@@ -126,7 +126,8 @@ private:
     vk::SurfaceFormatKHR surface_format;
     vk::Format view_format;
     vk::PresentModeKHR present_mode;
-    bool vsync = true; ///< the setting present_mode was chosen for
+    bool vsync = true;     ///< the settings present_mode was chosen for
+    bool tearing = false;
     vk::Extent2D extent;
     vk::SurfaceTransformFlagBitsKHR transform;
     vk::CompositeAlphaFlagBitsKHR composite_alpha;

@@ -14,7 +14,8 @@ pacman -S --needed git patch \
   mingw-w64-clang-x86_64-{toolchain,cmake,ninja,pkgconf,python} \
   mingw-w64-clang-x86_64-{vulkan-headers,vulkan-loader,vulkan-memory-allocator,glslang} \
   mingw-w64-clang-x86_64-{sdl3,fmt,boost,robin-map,xxhash,ffmpeg,zydis} \
-  mingw-w64-clang-x86_64-{spirv-tools,spirv-headers,spirv-cross}
+  mingw-w64-clang-x86_64-{spirv-tools,spirv-headers,spirv-cross} \
+  mingw-w64-clang-x86_64-{libvorbis,libogg}
 ```
 
 You also need Python 3.10 or newer on Windows itself (python.org) for `run.py`, the tests and the
@@ -65,13 +66,36 @@ building Vulkan-Headers, VMA and SDL3, which 24.04 lacks or ships too old. Then:
 CC=clang-18 CXX=clang++-18 bash build.sh --test
 ```
 
-`python3 tools/package.py --zip` writes `out/<release>-linux.tar.gz` (also `-symbols`, and `-debug`
-with `--debug`): the two programs, the libraries they need in `lib/` less the host's (glibc,
-libstdc++, Vulkan, X11/Wayland, audio), and `prepare/` without Python, as the setup runs the
-system's python3. `packaging/linux/smoke-test.sh <unpacked release>` checks one as root on a fresh
-distro (libraries, the setup on non-dumps, the start from `paths.ini`); the `linux-smoke` CI job
-runs it on Ubuntu 24.04, Debian 13, Fedora 42 and Arch. In WSL the game runs on Mesa's software
-Vulkan (llvmpipe): slow, but enough for a boot check.
+The DLC maker (`tools/dlcmaker/app/out/theatrhythm-dlcmaker`: its window, Dear ImGui on SDL3, and
+its command line) builds with its own script:
+
+```bash
+CXX=clang++-18 bash tools/dlcmaker/app/build.sh
+```
+
+`python3 tools/package.py --zip` writes `out/<release>-linux.tar.gz` (also `-symbols`, and
+`-debug` with `--debug`): the game, the setup, the libraries they need in `lib/` less the host's
+(glibc, libstdc++, Vulkan, X11/Wayland, audio) and `prepare/`. The setup runs the system's python3.
+
+The DLC maker is a download of its own, `out/theatrhythm-dlcmaker.AppImage`:
+
+```bash
+bash tools/dlcmaker/app/build.sh
+bash tools/dlcmaker/build-ffmpeg.sh out/dlcmaker-ffmpeg
+python3 tools/package.py --dlcmaker --ffmpeg out/dlcmaker-ffmpeg/ffmpeg --zip \
+    --appimagetool <appimagetool-x86_64.AppImage> --appimage-runtime <runtime-x86_64>
+```
+
+It holds the DLC maker's program (the window and the command line; libvorbis and libogg linked in),
+a minimal ffmpeg built from a pinned FFmpeg release (`build-ffmpeg.sh`: only the formats, filters and
+encoders the DLC maker uses, FFmpeg's own libraries linked statically) and, in `lib/`, SDL3, libx264
+and libdav1d (also in `dist-dlcmaker/`, which works as it is). appimagetool 1.9.1 and the type2 runtime
+are pinned with their SHA-256 in `.github/workflows/build.yml`.
+
+`packaging/linux/smoke-test.sh <unpacked release> <theatrhythm-dlcmaker.AppImage>` checks both as root on a
+fresh distro (libraries, the setup on non-dumps, the start from `paths.ini`, the DLC maker's Check
+on a new project); the `linux-smoke` CI job runs it on Ubuntu 24.04, Debian 13, Fedora 42 and Arch.
+In WSL the game runs on Mesa's software Vulkan (llvmpipe): slow, but enough for a boot check.
 
 ## 4. Run from the source tree
 
@@ -87,9 +111,9 @@ python run.py --game <dump> --timeout 20
 
 ## 5. Package
 
-There are two kinds of package. Both hold what a player needs without this repo or MSYS2: the two
-exes, the DLLs they load (found by walking their imports in `C:\msys64\clang64\bin`), `prepare/`
-for the setup, a README and the license. Neither ever contains game files.
+There are two kinds of package. Both hold what a player needs without this repo or MSYS2: the game
+and setup exes, the DLLs they load (found by walking their imports in `C:\msys64\clang64\bin`),
+`prepare/` for the setup, a README and the license. Neither ever contains game files.
 
 | | Release (for players) | Debug (for chasing a bug on someone's PC) |
 |---|---|---|
@@ -102,6 +126,26 @@ for the setup, a README and the license. Neither ever contains game files.
 `https://www.python.org/ftp/python/3.15.1/python-3.15.1-embed-amd64.zip`; check its SHA-256
 against the python.org release page. It becomes `prepare/python`, so players need no Python of
 their own. Without `--python` the setup uses the player's Python 3.10+.
+
+The DLC maker is a separate download. Build its window, then package it:
+
+```bash
+bash tools/dlcmaker/app/build.sh
+bash tools/dlcmaker/build-ffmpeg.sh out/dlcmaker-ffmpeg
+python tools/package.py --dlcmaker --ffmpeg out/dlcmaker-ffmpeg/ffmpeg.exe --zip
+```
+
+`build-ffmpeg.sh` builds a minimal static `ffmpeg.exe` from a pinned FFmpeg release (only what the
+DLC maker uses, with libx264, libdav1d and zlib linked in: `pacman -S make
+mingw-w64-clang-x86_64-{nasm,x264,dav1d,zlib}`). Run it from an MSYS2 CLANG64 shell; it takes a few
+minutes, and CI caches it. Without `--ffmpeg`, `package.py` ships MSYS2's `ffmpeg.exe` with its
+~110 DLLs instead.
+
+That fills `dist-dlcmaker/` (which works as it is) and writes `out/theatrhythm-dlcmaker.exe`: the
+DLC maker's program (the window and the command line, linked statically) with `ffmpeg.exe` and the
+text files appended as a zip, which it unpacks into `%LOCALAPPDATA%\theatrhythm-dlcmaker\<release>`
+on its first start of a release (with Windows' `tar.exe`). Players put the exe in the game's release
+folder, where the window takes the game and save folders from `paths.ini`, or anywhere else.
 
 The folder (`dist/` by default, `--out DIR` otherwise) is also a working install: run its
 `theatrhythm-setup.exe` once and it plays. Re-packaging into it keeps what the setup and the
@@ -128,7 +172,7 @@ then sends the `diagnose` folder. The debug README.txt tells them so.
 ## 6. CI and releases
 
 Every push and pull request runs `.github/workflows/build.yml` on `windows-latest`: build, both test
-suites, then both packages with the pinned embeddable Python. The `linux` and `linux-smoke` jobs do
+suites, then both packages (the game's with the pinned embeddable Python). The `linux` and `linux-smoke` jobs do
 the same for Linux on `ubuntu-24.04`; their tarballs are artifacts and are not published yet. The release, debug and symbols zips
 are the run's artifacts (Actions tab, kept 90 days). Pushing an annotated tag `v*` also publishes
 the release zip as a GitHub release, named after the tag:

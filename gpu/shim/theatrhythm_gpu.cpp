@@ -5,7 +5,9 @@
 #include "theatrhythm_settings.h"
 #include "theatrhythm_graphics.h"
 #include "theatrhythm_copy.h"
-#ifndef _WIN32
+#ifdef _WIN32
+#include <dxgi.h>
+#else
 #include <sys/resource.h>
 #endif
 #include "theatrhythm_toggles.h"
@@ -223,6 +225,44 @@ double TheatrhythmWindowRefreshRate() {
         return double(mode->refresh_rate_numerator) / mode->refresh_rate_denominator;
     }
     return mode->refresh_rate > 0 ? mode->refresh_rate : 0.0;
+}
+
+// The DXGI output of the window's monitor, per calling thread, found again when the window moves.
+bool TheatrhythmWaitForVblank() {
+#ifdef _WIN32
+    thread_local IDXGIOutput* output = nullptr;
+    thread_local HMONITOR monitor = nullptr;
+    HWND hwnd = g_window ? static_cast<HWND>(SDL_GetPointerProperty(
+                               SDL_GetWindowProperties(g_window->GetSDLWindow()),
+                               SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr))
+                         : nullptr;
+    if (!hwnd) return false;
+    const HMONITOR current = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    if (current != monitor) {
+        if (output) output->Release();
+        output = nullptr;
+        monitor = current;
+        IDXGIFactory1* factory = nullptr;
+        if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&factory)))) return false;
+        IDXGIAdapter1* adapter = nullptr;
+        for (UINT a = 0; !output && factory->EnumAdapters1(a, &adapter) != DXGI_ERROR_NOT_FOUND; ++a) {
+            IDXGIOutput* candidate = nullptr;
+            for (UINT o = 0; !output && adapter->EnumOutputs(o, &candidate) != DXGI_ERROR_NOT_FOUND; ++o) {
+                DXGI_OUTPUT_DESC desc{};
+                if (SUCCEEDED(candidate->GetDesc(&desc)) && desc.Monitor == current) {
+                    output = candidate;
+                } else {
+                    candidate->Release();
+                }
+            }
+            adapter->Release();
+        }
+        factory->Release();
+    }
+    return output && SUCCEEDED(output->WaitForVBlank());
+#else
+    return false;
+#endif
 }
 
 extern "C" int theatrhythm_gpu_init(const TheatrhythmGpuConfig* config) {

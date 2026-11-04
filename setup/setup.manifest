@@ -2,7 +2,7 @@
 <!-- theatrhythm-setup.exe: common controls 6 (current Windows look), system DPI awareness, and
      asInvoker, which also keeps Windows from asking to elevate an exe with "setup" in its name. -->
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity type="win32" name="theatrhythm.theatrhythm-setup" version="1.0.3.0"/>
+  <assemblyIdentity type="win32" name="theatrhythm.theatrhythm-setup" version="1.0.4.0"/>
   <dependency>
     <dependentAssembly>
       <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"

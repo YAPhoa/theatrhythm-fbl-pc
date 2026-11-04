@@ -8,6 +8,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <limits>
+#include <thread>
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
@@ -303,7 +305,11 @@ int VideoOutDriver::ChangeBufferAttribute(VideoOutPort* port, s32 attributeIndex
     return 0;
 }
 
+// theatrhythm: frames handed to the presenter, for the loader's hang dump (theatrhythm_gpu_flips).
+static std::atomic<u64> g_theatrhythm_flips_shown;
+
 void VideoOutDriver::Flip(const Request& req) {
+    g_theatrhythm_flips_shown.fetch_add(1, std::memory_order_relaxed);
     // Update HDR status before presenting, then present the frame (theatrhythm: on the swap thread).
     RunPresenter([this, frame = req.frame, hdr = req.port->is_hdr] {
         presenter->SetHDR(hdr);
@@ -324,6 +330,24 @@ void VideoOutDriver::Flip(const Request& req) {
         worst_ms = std::max(worst_ms, frame_ms);
         static std::vector<double> intervals;
         intervals.push_back(frame_ms);
+        // Where each flip lands in the display's refresh (Windows): a thread stamps every refresh.
+        static std::atomic<s64> refresh_ns{0};
+        static const bool refresh_stamps = [] {
+            std::thread([] {
+                Common::SetCurrentThreadName("theatrhythm:RefreshStamps");
+                while (TheatrhythmWaitForVblank()) {
+                    refresh_ns = Clock::now().time_since_epoch().count();
+                }
+            }).detach();
+            return true;
+        }();
+        static std::vector<double> phases;
+        if (refresh_stamps && refresh_ns.load()) {
+            const double period_ms = EmulatorSettings.GetVblankPeriod().count() / 1e6;
+            double phase = (now.time_since_epoch().count() - refresh_ns.load()) / 1e6;
+            phase = std::fmod(phase + period_ms / 2, period_ms) - period_ms / 2;
+            phases.push_back(phase);
+        }
         last = now;
         // Stall diagnostics: what happened during a long frame.
         static u64 last_gpu_ns, last_images, last_image_bytes, last_buffer_bytes;
@@ -546,6 +570,15 @@ void VideoOutDriver::Flip(const Request& req) {
                             clock, median, std::sqrt(std::max(0.0, sq / intervals.size() - mean * mean)),
                             sorted[std::min(sorted.size() - 1, sorted.size() * 99 / 100)], spikes);
             }
+            // Flip phase from the start of a refresh, wrapped to half a refresh either side: a
+            // spread or a drift between windows means flips cross refreshes (judder at VSync).
+            if (phases.size() > 2) {
+                std::vector<double> sorted = phases;
+                std::sort(sorted.begin(), sorted.end());
+                std::printf("Refresh phase: median %+.2f ms, p1 %+.2f, p99 %+.2f ms\n", sorted[sorted.size() / 2],
+                            sorted[sorted.size() / 100], sorted[std::min(sorted.size() - 1, sorted.size() * 99 / 100)]);
+            }
+            phases.clear();
             intervals.clear();
             window_start = now;
             frames = 0;
@@ -668,21 +701,30 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 
     // theatrhythm: frame limit (see EmulatorSettings::GetFrameLimit). A request waits in the queue
     // until its slot; slots advance by one period (no drift) but never lag behind by more.
-    // theatrhythm: TheatrhythmSettings::fps_limit (0: one flip per vblank); THEATRHYTHM_FPS_LIMIT
-    // (measurements) is used as given.
+    // theatrhythm: TheatrhythmSettings::fps_limit (0: one flip per vblank; FpsUnlimited: each flip as
+    // it comes, between vblanks, with no slot); THEATRHYTHM_FPS_LIMIT (measurements) is used as given.
+    constexpr u32 unlimited = std::numeric_limits<u32>::max();
     const bool measured_limit = std::getenv("THEATRHYTHM_FPS_LIMIT") != nullptr;
     const int vblank_hz = int(EmulatorSettings.GetVblankFrequency());
     const auto current_limit = [&] {
         if (measured_limit) {
             return EmulatorSettings.GetFrameLimit();
         }
-        return u32(TheatrhythmSettings::Get().fps_limit.load());
+        const int limit = TheatrhythmSettings::Get().fps_limit.load();
+        return limit == TheatrhythmGraphics::FpsUnlimited ? unlimited : u32(limit);
+    };
+    const auto period_of = [&](u32 limit) {
+        return limit == unlimited ? std::chrono::nanoseconds(0) : EmulatorSettings.GetFramePeriod(limit);
     };
     u32 frame_limit = current_limit();
-    auto frame_period = EmulatorSettings.GetFramePeriod(frame_limit);
+    auto frame_period = period_of(frame_limit);
     auto next_flip = std::chrono::steady_clock::now();
-    std::printf("VideoOut: vblank %.3f Hz, frame limit %.3f FPS\n", 1e9 / vblank_period.count(),
-                frame_limit ? 1e9 / frame_period.count() : 0.0);
+    if (frame_limit == unlimited) {
+        std::printf("VideoOut: vblank %.3f Hz, no frame limit\n", 1e9 / vblank_period.count());
+    } else {
+        std::printf("VideoOut: vblank %.3f Hz, frame limit %.3f FPS\n", 1e9 / vblank_period.count(),
+                    frame_limit ? 1e9 / frame_period.count() : 0.0);
+    }
 
     const auto receive_request = [this] -> Request {
         std::scoped_lock lk{mutex};
@@ -698,16 +740,45 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     // arrives and its slot allows, between vblanks, instead of on the next vblank tick.
     bool immediate_flips = frame_limit != 0;
 
+    // theatrhythm: with VSync on and one flip per vblank, a tick starts with the display's own
+    // refresh (TheatrhythmWaitForVblank) instead of the timer at its nominal rate: the timer's
+    // flips drifted ~0.04 ms/s against the real refresh (crossing it every few minutes) with a
+    // 0.5 ms spread, so the guest's frame times wavered; locked, the spread is 0.04 ms and the
+    // phase stays within 0.1 ms of the refresh. A display at another rate than the vblank, or
+    // a wait that fails or returns at once (minimized), keeps the timer. THEATRHYTHM_VBLANK_TIMER=1
+    // always uses it (measurements).
+    const bool follow_display = !EmulatorSettingsImpl::Flag("THEATRHYTHM_VBLANK_TIMER", false) &&
+                                std::getenv("THEATRHYTHM_VBLANK_HZ") == nullptr &&
+                                std::abs(TheatrhythmWindowRefreshRate() - vblank_hz) < 0.5;
+    bool on_display = false;
+    auto last_tick = std::chrono::steady_clock::now();
+
     while (!token.stop_requested()) {
         if (const u32 limit = current_limit(); limit != frame_limit) {
             frame_limit = limit;
-            frame_period = EmulatorSettings.GetFramePeriod(limit);
+            frame_period = period_of(limit);
             immediate_flips = limit != 0;
             next_flip = std::chrono::steady_clock::now();
-            std::printf("VideoOut: frame limit %u FPS\n", limit);
+            if (limit == unlimited) {
+                std::printf("VideoOut: no frame limit\n");
+            } else {
+                std::printf("VideoOut: frame limit %u FPS\n", limit);
+            }
         }
-        timer.Start();
-        const auto tick_deadline = std::chrono::steady_clock::now() + vblank_period;
+        bool display_tick = follow_display && !frame_limit && TheatrhythmSettings::Get().vsync &&
+                            TheatrhythmWaitForVblank();
+        if (display_tick && std::chrono::steady_clock::now() - last_tick < vblank_period / 2) {
+            display_tick = false; // no refresh to wait for: the timer keeps the rate
+        }
+        if (!display_tick) {
+            if (on_display) {
+                timer = Common::AccurateTimer{vblank_period};
+            }
+            timer.Start();
+        }
+        on_display = display_tick;
+        last_tick = std::chrono::steady_clock::now();
+        const auto tick_deadline = last_tick + vblank_period;
 
         if (DebugState.IsGuestThreadsPaused()) {
             DrawLastFrame();
@@ -725,7 +796,7 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
                 next_flip = std::max(next_flip + frame_period, now - frame_period);
             }
             if (!request) {
-                if (timer.GetTotalWait().count() < 0) { // Dont draw too fast
+                if (display_tick || timer.GetTotalWait().count() < 0) { // Dont draw too fast
                     if (!main_port.is_open) {
                         DrawBlankFrame();
                     } else if (ImGui::Core::MustKeepDrawing()) {
@@ -793,3 +864,8 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
 }
 
 } // namespace Libraries::VideoOut
+
+// theatrhythm: frames shown since start (the loader's hang dump watches it).
+extern "C" unsigned long long theatrhythm_gpu_flips(void) {
+    return Libraries::VideoOut::g_theatrhythm_flips_shown.load(std::memory_order_relaxed);
+}

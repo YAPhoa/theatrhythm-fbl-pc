@@ -1,6 +1,7 @@
 /* Display Settings in the game's own Options menu: a copy of the
  * Logo Usage button below Streaming Rules opens the game's MS Settings page, and while that page is
- * shown this way its rows show and change the runner's display settings instead of the game's.
+ * shown this way its rows show and change the runner's display settings instead of the game's. The
+ * Language page's Display language row also steps through all nine languages the game has.
  *
  * Game functions (Il2CppUserAssemblies) are hooked at their entry: the first instructions move to a
  * stub that saves the argument registers, calls a runner function with them, and then either returns
@@ -184,8 +185,8 @@ static void show_row(int row) {
     else if (row==ROW_RENDER) put32(parameter+0x14,theatrhythm_display_get(THEATRHYTHM_DISPLAY_RENDER_4K) ? 1 : 0);
     else if (row==ROW_FPS) {
         const int fps=theatrhythm_display_get(THEATRHYTHM_DISPLAY_FPS_LIMIT);
-        int at=0;
-        for (int i=1;fps && i<6;++i) if (abs(fps_stops[i]-fps)<abs(fps_stops[at]-fps) || !at) at=i;
+        int at=fps<0 ? 5 : 0; /* Unlimited (set in settings.ini or the F10 panel): the last stop */
+        for (int i=1;fps>0 && i<6;++i) if (abs(fps_stops[i]-fps)<abs(fps_stops[at]-fps) || !at) at=i;
         put32(parameter+0x14,at);
     }
     refresh_view(item);
@@ -566,7 +567,8 @@ static void value_text(unsigned char *behaviour, size_t field, int row) {
         snprintf(value,sizeof(value),"%d x %d",w,h);
     } else {
         const int32_t index=load32(behaviour+0x18); /* SelectedIndex */
-        snprintf(value,sizeof(value),"%s",fps_ticks[index>=0 && index<6 ? index : 0]);
+        const int unlimited=index==5 && theatrhythm_display_get(THEATRHYTHM_DISPLAY_FPS_LIMIT)<0;
+        snprintf(value,sizeof(value),"%s",unlimited ? "Unlimited" : fps_ticks[index>=0 && index<6 ? index : 0]);
     }
     void *string=guest_text((void *)load(row_item[row]+0x20),value); /* a string's class: the help term's */
     const unsigned char *klass=(const unsigned char *)load(text);
@@ -650,6 +652,56 @@ static ABI int translate(HookRegs *r) {
     return 1;
 }
 
+/* All nine display languages: the game has Korean and Chinese (Traditional, Simplified) text too, but
+ * this release allows only the Western six (RegionLanguage's World region). On Options > Language &
+ * menu volume, left and right on Display language step through all nine; pressing it still opens the
+ * game's picker of six. SystemLanguage values, in the picker's order and then the three it leaves out. */
+static const int32_t languages[]={15,10,34,14,21,22,23,41,40};
+
+/* ConfigLanguageMenuEditPartsMain::OnExecutedScenePartsMain(this, reaction) -> handled: left (action
+ * 0) or right (1) on Display language, the page's only button row, switches the language as the picker
+ * does: LanguageController.SwitchLanguage(language, FontResourceManager.Instance), which loads the
+ * language's fonts (not awaited), Backup.ConfigInfo.DisplayLanguage, then
+ * Backup.ReserveSave. */
+static ABI int language_input(HookRegs *r) {
+    unsigned char *self=(unsigned char *)r->rdi, *reaction=(unsigned char *)r->rsi;
+    const int32_t action=load32(reaction+0x20);
+    const unsigned char *list=action==0 || action==1 ? (const unsigned char *)load(self+0x90) : NULL;
+    const unsigned char *selected=list ? (const unsigned char *)load(list+0xa8) : NULL; /* SelectedItemInfo */
+    unsigned char *item=selected ? (unsigned char *)load(selected+0x20) : NULL;
+    if (!item || strcmp(class_name(item),"ConfigListItemButton")) return 0;
+    unsigned char *controller=((unsigned char *(ABI *)(void *))GUEST(0x2b0c270))(NULL); /* LanguageController.Instance */
+    void *fonts=((void *(ABI *)(void *))GUEST(0x459b960))(NULL); /* FontResourceManager.Instance */
+    if (!controller || !fonts) return 0;
+    const int count=sizeof(languages)/sizeof(*languages);
+    int at=1; /* English */
+    for (int i=0;i<count;++i) if (languages[i]==load32(controller+0x18)) at=i; /* CurrentLanguage */
+    const int32_t language=languages[(at+(action==1 ? 1 : count-1))%count];
+    ((void (ABI *)(void *, int32_t, void *, void *))GUEST(0x2b0c2f0))(controller,language,fonts,NULL);
+    unsigned char *config=((unsigned char *(ABI *)(void *))GUEST(0x45ceaa0))(NULL); /* Backup::get_ConfigInfo */
+    if (config) put32(config+0x1c,language);
+    ((void (ABI *)(void *))GUEST(0x45d8610))(NULL); /* Backup::ReserveSave */
+    play_se((const void *)load(item+0x58));
+    ((void (ABI *)(void *, int, void *))GUEST(0x2941ba0))(reaction,0,NULL); /* UIObject::EndAction */
+    r->rax=0;
+    return 1;
+}
+/* Code that would turn the three back into English: the region checks return the language as asked,
+ * and ConfigInfo::set_DisplayLanguage and the save's reader keep it as given (both check the World
+ * region inline). A new save's default, from the system language, stays one of the six. */
+static const struct { uint64_t offset; unsigned char original[10], length, patch[4]; } language_patches[]={
+    {0x45a0b40,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* RegionLanguage::GetLanguageAllowedInCurrentRegion: mov eax,edi; ret */
+    {0x45a0b80,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* ...InWorldRegion */
+    {0x45a0c00,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* ...InJapanRegion */
+    {0x45e5cf0,{0x83,0xfe,0x0f,0x7e,0x1d,0x83,0xfe,0x22,0x77,0x2e},4,{0x89,0x77,0x1c,0xc3}}, /* ConfigInfo::set_DisplayLanguage: mov [rdi+0x1c],esi; ret */
+    {0x19bb421,{0x83,0xf8,0x0f,0x7e,0x1b,0x83,0xf8,0x22,0x77,0x2c},4,{0x89,0xc1,0xeb,0x37}}, /* ConfigInfoFormatter::Deserialize, DisplayLanguage: mov ecx,eax; jmp to its store */
+};
+/* The picker (WindowLanguageSettingBodyPartsMain's InitializeSetting, MoveNext) selects the button of
+ * the current language, read here: mov r12d,[rax+0x18]; jmp the button loop. A language it has no
+ * button for would leave it without a cursor, so a stub reads those three as English. */
+#define PICKER_SITE 0x157e88f
+static const unsigned char picker_site[]={0x44,0x8b,0x60,0x18,0xeb,0x41};
+
 static const Hook hooks[]={
     {0xeef450, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, switch_layer, 0},    /* ConfigMain::switchLayer */
     {0x2cfa280,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, translate, 0},       /* LocalizationManager::TryGetTranslation */
@@ -675,6 +727,7 @@ static const Hook hooks[]={
     {0xea4090, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, object_info, 0},     /* ScenePartsMain.UIObjectGroup::GetUIObjectInfo */
     {0xed8010, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, row_view, 0},        /* ConfigListItemView::OnSetView */
     {0xfffa30, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, help_entry, 6},      /* HelpBarContent::RefleshDisplay (3 Colors) */
+    {0xee4610, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, language_input, 0},  /* ConfigLanguageMenuEditPartsMain::OnExecutedScenePartsMain */
 };
 
 static unsigned char *emit(unsigned char *p, const void *bytes, size_t size) { memcpy(p,bytes,size); return p+size; }
@@ -717,6 +770,21 @@ static unsigned char *emit_hook_stub(unsigned char *p, const Hook *h, unsigned c
     p=emit(p,(const unsigned char[]){0x48,0x81,0xc4},3); p=emit(p,&frame,4); /* add rsp,frame */
     return emit(p,(const unsigned char[]){0xc3},1);                           /* ret */
 }
+/* The picker's stub at `p`, jumped to from PICKER_SITE: its load, the three as English, then back to
+ * the button loop (the site's jmp). */
+#define PICKER_STUB_SIZE 42
+static unsigned char *emit_picker_stub(unsigned char *p) {
+    static const unsigned char code[]={
+        0x44,0x8b,0x60,0x18,                /* mov r12d,[rax+0x18] */
+        0x41,0x83,0xfc,0x17, 0x74,0x0c,     /* cmp r12d,23 (Korean); je english */
+        0x41,0x83,0xfc,0x28, 0x74,0x06,     /* cmp r12d,40 (ChineseSimplified); je english */
+        0x41,0x83,0xfc,0x29, 0x75,0x06,     /* cmp r12d,41 (ChineseTraditional); jne back */
+        0x41,0xbc,0x0a,0x00,0x00,0x00,      /* english: mov r12d,10 */
+        0xff,0x25,0,0,0,0};                 /* back: jmp [rip] */
+    const uint64_t loop=(uint64_t)(uintptr_t)(module+PICKER_SITE+sizeof(picker_site)+0x41);
+    p=emit(p,code,sizeof code);
+    return emit(p,&loop,8);
+}
 
 int runtime_display_page_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int monitor) {
     module=image+module_base;
@@ -734,6 +802,22 @@ int runtime_display_page_install(unsigned char *image, uint64_t module_base, uns
             return -1;
         }
     }
+    for (size_t i=0;i<sizeof(language_patches)/sizeof(*language_patches);++i)
+        if (memcmp(module+language_patches[i].offset,language_patches[i].original,sizeof(language_patches[i].original))) {
+            printf("Display page: game code differs at 0x%llx; the Options menu stays as it is\n",(unsigned long long)language_patches[i].offset);
+            return -1;
+        }
+    if (memcmp(module+PICKER_SITE,picker_site,sizeof(picker_site))) {
+        printf("Display page: game code differs at 0x%llx; the Options menu stays as it is\n",(unsigned long long)PICKER_SITE);
+        return -1;
+    }
+    need+=PICKER_STUB_SIZE;
+    if (need>size) {
+        printf("Display page: no room for the hook stubs; the Options menu stays as it is\n");
+        return -1;
+    }
+    for (size_t i=0;i<sizeof(language_patches)/sizeof(*language_patches);++i)
+        memcpy(module+language_patches[i].offset,language_patches[i].patch,language_patches[i].length);
     unsigned char *p=stubs;
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
         unsigned char *function=module+hooks[i].offset;
@@ -743,6 +827,10 @@ int runtime_display_page_install(unsigned char *image, uint64_t module_base, uns
         function[0]=0xe9; memcpy(function+1,&rel32,4);
         memset(function+5,0x90,hooks[i].length-5u); /* never run: the stub jumps past them */
     }
-    printf("Display page: Options > Display Settings (%zu hooks)\n",sizeof(hooks)/sizeof(*hooks));
+    unsigned char *site=module+PICKER_SITE;
+    const int32_t rel32=(int32_t)(p-(site+5));
+    p=emit_picker_stub(p);
+    site[0]=0xe9; memcpy(site+1,&rel32,4); site[5]=0x90;
+    printf("Display page: Options > Display Settings and all display languages (%zu hooks)\n",sizeof(hooks)/sizeof(*hooks));
     return 0;
 }

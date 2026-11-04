@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Linux build dependencies on Ubuntu 24.04 (.github/workflows/build.yml). Its glibc (2.39) is the
-# oldest one players can have: SteamOS, Bazzite/Fedora, Debian 13 and Ubuntu 24.04 or newer.
+# oldest one players can have: SteamOS, Bazzite/Fedora, Debian 13 and Ubuntu 24.04 or newer. The DLC
+# maker links libvorbis/libogg in, and its ffmpeg (tools/dlcmaker/build-ffmpeg.sh) libx264, libdav1d and zlib.
 # What 24.04 lacks or ships too old is built into /usr/local: Vulkan-Headers, VMA, SDL3.
 set -euo pipefail
 sudo=$([[ $(id -u) == 0 ]] || echo sudo)
@@ -13,7 +14,7 @@ $sudo apt-get install -y --no-install-recommends \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev libxtst-dev libxfixes-dev \
     libxinerama-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libdrm-dev libgbm-dev \
     libegl-dev libasound2-dev libpulse-dev libpipewire-0.3-dev libudev-dev libdbus-1-dev libibus-1.0-dev \
-    python3
+    python3 nasm make libvorbis-dev libogg-dev libx264-dev libdav1d-dev zlib1g-dev
 # No cc on a fresh install (the CI image has one): what is built below uses clang-18 too, and
 # build.sh then needs CC=clang-18 CXX=clang++-18.
 export CC=${CC:-clang-18} CXX=${CXX:-clang++-18}

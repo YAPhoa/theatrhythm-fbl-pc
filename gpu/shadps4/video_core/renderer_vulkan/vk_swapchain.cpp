@@ -239,18 +239,25 @@ void Swapchain::FindPresentMode() {
     }
 
     // theatrhythm: VSync on is Fifo (no tearing, waits for the display); off is Mailbox when the
-    // driver has it, else Immediate (tearing allowed), else Fifo.
+    // driver has it, else Immediate (tearing allowed), else Fifo. Off with tearing prefers
+    // Immediate: NVIDIA's Mailbox frees an image only as the display takes one, two frames per
+    // refresh (119.9 FPS on a 59.95 Hz panel, borderless or fullscreen alike).
     vsync = TheatrhythmSettings::Get().vsync;
+    tearing = TheatrhythmSettings::Get().tearing;
     const auto has = [&](vk::PresentModeKHR mode) { return std::ranges::find(modes, mode) != modes.cend(); };
+    const auto first = tearing ? vk::PresentModeKHR::eImmediate : vk::PresentModeKHR::eMailbox;
+    const auto second = tearing ? vk::PresentModeKHR::eMailbox : vk::PresentModeKHR::eImmediate;
     present_mode = vsync ? vk::PresentModeKHR::eFifo
-                   : has(vk::PresentModeKHR::eMailbox) ? vk::PresentModeKHR::eMailbox
-                   : has(vk::PresentModeKHR::eImmediate) ? vk::PresentModeKHR::eImmediate
-                                                         : vk::PresentModeKHR::eFifo;
-    std::printf("Swapchain: VSync %s (%s)\n", vsync ? "on" : "off", vk::to_string(present_mode).c_str());
+                   : has(first) ? first
+                   : has(second) ? second
+                                 : vk::PresentModeKHR::eFifo;
+    std::printf("Swapchain: VSync %s%s (%s)\n", vsync ? "on" : "off", !vsync && tearing ? ", tearing" : "",
+                vk::to_string(present_mode).c_str());
 }
 
 void Swapchain::UpdateVsync() {
-    if (TheatrhythmSettings::Get().vsync == vsync) {
+    const auto& settings = TheatrhythmSettings::Get();
+    if (settings.vsync == vsync && settings.tearing == tearing) {
         return;
     }
     if (const auto result = instance.GetDevice().waitIdle(); result != vk::Result::eSuccess) {

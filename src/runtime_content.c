@@ -1,6 +1,7 @@
-/* Offline AppContent provider for locally unpacked add-on packages.
+/* Offline AppContent provider for configured and locally installed add-ons.
  * No downloads or license emulation. */
 #include "runtime.h"
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -110,7 +111,7 @@ static ABI int32_t content_init(const unsigned char *init,unsigned char *boot) {
     /* Only the reserved-zero init profile is implemented. */
     for (unsigned i=0;i<32;++i) if (init[i]) return PARAMETER;
     memset(boot,0,40); initialized=1;
-    printf("Runtime: AppContent initialized; offline profile, %zu local add-ons available\n",addon_count);
+    puts("Runtime: AppContent initialized; offline base-game profile");
     return 0;
 }
 static void require_initialized(void) {
@@ -124,17 +125,57 @@ static ABI int32_t param_int(uint32_t id,int32_t *out) {
     printf("Runtime: AppContent parameter %u = %d\n",id,*out);
     return 0;
 }
+/* Installed add-ons: each folder <user>/addcont/<label>/ is one, its name the entitlement label
+ * (up to 16 characters), listed in name order and mounted as /addcont<index>. */
+#define LABEL_SIZE 17
+#define MAX_ADDONS 64
+static char installed_addons[MAX_ADDONS][LABEL_SIZE];
+static unsigned installed_addon_count, addons_scanned;
+static int addon_order(const void *a,const void *b) { return strcmp(a,b); }
+static void scan_addons(void) {
+    if (addons_scanned) return;
+    addons_scanned=1;
+    char path[600]; snprintf(path,sizeof(path),"%s/addcont",runtime_file_user_dir());
+    DIR *d=opendir(path);
+    if (!d) return;
+    for (struct dirent *e; installed_addon_count<MAX_ADDONS && (e=readdir(d));) {
+        size_t n=strlen(e->d_name);
+        if (e->d_name[0]=='.' || n>=LABEL_SIZE) continue;
+        size_t i;
+        for (i=0;i<addon_count;++i) if (!strcmp(addons[i].entitlement,e->d_name)) break;
+        if (i<addon_count) continue;
+        char folder[700]; snprintf(folder,sizeof(folder),"%s/%s",path,e->d_name);
+        DIR *sub=opendir(folder);
+        if (!sub) continue;
+        closedir(sub);
+        memcpy(installed_addons[installed_addon_count++],e->d_name,n+1);
+    }
+    closedir(d);
+    qsort(installed_addons,installed_addon_count,LABEL_SIZE,addon_order);
+    for (unsigned i=0;i<installed_addon_count;++i)
+        printf("Runtime: add-on %s installed (%s/%s)\n",installed_addons[i],path,installed_addons[i]);
+}
+static int find_installed_addon(const char *label) {
+    for (unsigned i=0;i<installed_addon_count;++i)
+        if (!strncmp(label,installed_addons[i],LABEL_SIZE-1)) return (int)i;
+    return -1;
+}
+/* sceAppContentGetAddcontInfoList(service, list, capacity, hits): OrbisAppContentAddcontInfo is
+ * the entitlement label (17 bytes, 3 padding) and the download status (4 = installed). A null
+ * list only counts. Never touch unused list slots. */
 static ABI int32_t addon_list(uint32_t service,void *list,uint32_t capacity,uint32_t *hits) {
     require_initialized();
     if (service>7) return PARAMETER;
     if ((!capacity || !list) && !hits) return PARAMETER;
-    size_t count=service ? 0 : addon_count;
-    if (list && capacity) {
-        size_t written=count<capacity ? count : capacity;
+    scan_addons();
+    size_t count=service ? 0 : addon_count+installed_addon_count;
+    if (list) {
+        size_t written=capacity<count ? capacity : count;
         for (size_t i=0;i<written;++i) {
+            const char *label=i<addon_count ? addons[i].entitlement : installed_addons[i-addon_count];
             unsigned char *entry=(unsigned char *)list+i*ADDON_INFO_SIZE;
             memset(entry,0,ADDON_INFO_SIZE);
-            memcpy(entry,addons[i].entitlement,strlen(addons[i].entitlement));
+            memcpy(entry,label,strlen(label));
             uint32_t status=INSTALLED;
             memcpy(entry+20,&status,sizeof(status));
         }
@@ -158,32 +199,72 @@ static ABI int32_t free_space_kb(const char *mount,uint64_t *kb) {
     if (!kb) return PARAMETER;
     *kb=1048576; return 0;
 }
-/* sceAppContentAddcontMount(service, entitlement, mount): mount the matching unpacked package. */
+/* Files under <add-on>/StreamingAssets/ are served in place of (or next to) the game's
+ * Media/StreamingAssets/ files of the same relative path, at both of the game's roots: plain files
+ * such as an Event stage's Movie/EMS/MUSICnnnnnnn.mp4 are not Addressables assets. */
+static void overlay_streaming_assets(const char *host,const char *relative) {
+    static const char *const roots[]={"/app0/Media/StreamingAssets","/archive/mount/point/Media/StreamingAssets"};
+    char path[700]; snprintf(path,sizeof(path),"%s/StreamingAssets%s",host,relative);
+    DIR *d=opendir(path);
+    if (!d) {
+        for (size_t i=0;i<sizeof(roots)/sizeof(*roots);++i) {
+            char guest[256]; snprintf(guest,sizeof(guest),"%s%s",roots[i],relative);
+            if (runtime_file_mount(guest,path)) { printf("Runtime: add-on file %s not mounted (mount table full)\n",guest); return; }
+        }
+        printf("Runtime: add-on file Media/StreamingAssets%s\n",relative);
+        return;
+    }
+    for (struct dirent *e; (e=readdir(d));) {
+        if (e->d_name[0]=='.') continue;
+        char next[512]; snprintf(next,sizeof(next),"%s/%s",relative,e->d_name);
+        overlay_streaming_assets(host,next);
+    }
+    closedir(d);
+}
+/* sceAppContentAddcontMount(service, entitlement, mount): /addcont<index> (16-byte mount point)
+ * names the add-on's folder; NOT_FOUND for a label that is not installed. */
 static ABI int32_t addon_mount(uint32_t service,const char *label,char *mount) {
     require_initialized();
     if (service>7 || !label || !mount) return PARAMETER;
     if (service) return NOT_FOUND;
-    size_t i;
-    for (i=0;i<addon_count;++i)
-        if (!strncmp(label,addons[i].entitlement,RUNTIME_CONTENT_LABEL_SIZE)) break;
-    if (i==addon_count) return NOT_FOUND;
-    char guest[16],host[512];
-    snprintf(guest,sizeof(guest),"/addcont%zu",i);
-    int n=snprintf(host,sizeof(host),"%s/DLC/%s",app0,addons[i].directory);
-    if (n<0 || (size_t)n>=sizeof(host) || runtime_file_mount(guest,host)) {
-        fprintf(stderr,"ERROR: cannot mount add-on %s\n",addons[i].entitlement);
-        return PARAMETER;
+    scan_addons();
+    size_t index=0;
+    char host[700];
+    for (;index<addon_count;++index)
+        if (!strncmp(label,addons[index].entitlement,RUNTIME_CONTENT_LABEL_SIZE)) break;
+    if (index<addon_count) {
+        int n=snprintf(host,sizeof(host),"%s/DLC/%s",app0,addons[index].directory);
+        if (n<0 || (size_t)n>=sizeof(host)) return PARAMETER;
+    } else {
+        int installed=find_installed_addon(label);
+        if (installed<0) return NOT_FOUND;
+        index=addon_count+(size_t)installed;
+        int n=snprintf(host,sizeof(host),"%s/addcont/%s",runtime_file_user_dir(),installed_addons[installed]);
+        if (n<0 || (size_t)n>=sizeof(host)) return NOT_FOUND;
     }
-    memset(mount,0,16);
-    memcpy(mount,guest,strlen(guest));
-    printf("Runtime: AppContent mounted add-on %s at %s\n",addons[i].entitlement,guest);
+    char guest[16]; snprintf(guest,sizeof(guest),"/addcont%zu",index);
+    if (runtime_file_mount(guest,host)) {
+        if (index<addon_count) {
+            fprintf(stderr,"ERROR: cannot mount add-on %s\n",addons[index].entitlement);
+            return PARAMETER;
+        }
+        return NOT_FOUND;
+    }
+    char assets[720]; snprintf(assets,sizeof(assets),"%s/StreamingAssets",host);
+    DIR *d=opendir(assets);
+    if (d) { closedir(d); overlay_streaming_assets(host,""); }
+    memset(mount,0,16); memcpy(mount,guest,strlen(guest));
+    printf("Runtime: add-on %s mounted at %s\n",
+           index<addon_count ? addons[index].entitlement : installed_addons[index-addon_count],guest);
     return 0;
 }
-/* sceAppContentAddcontUnmount(mount): remove only an add-on mount created above. */
+/* sceAppContentAddcontUnmount(mount): drops the mount; the folder stays listed. */
 static ABI int32_t addon_unmount(const char *mount) {
     require_initialized();
     if (!mount) return PARAMETER;
-    for (size_t i=0;i<addon_count;++i) {
+    scan_addons();
+    size_t count=addon_count+installed_addon_count;
+    for (size_t i=0;i<count;++i) {
         char expected[16];
         snprintf(expected,sizeof(expected),"/addcont%zu",i);
         if (!strncmp(mount,expected,sizeof(expected))) {

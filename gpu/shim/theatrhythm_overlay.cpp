@@ -306,7 +306,13 @@ void ChangeDisplayRow(int row, int delta) {
         s.monitor = at == 0 ? G::PrimaryMonitor : s.monitors[at - 1];
         break;
     }
-    case RowVsync: s.vsync = !s.vsync; break;
+    case RowVsync: { // On, Off, Off with tearing
+        const int at = (s.vsync ? 0 : s.tearing ? 2 : 1) + delta;
+        const int next = (at + 3) % 3;
+        s.vsync = next == 0;
+        s.tearing = next == 2;
+        break;
+    }
     case RowFps: s.fps_limit = StepValue(G::FpsLimits, s.fps_limit, delta); break;
     case RowQueued: s.frames_queued = StepValue(G::FramesQueued, s.frames_queued, delta); break;
     case RowAnisotropy: s.anisotropy = StepValue(G::Anisotropies, s.anisotropy, delta); break;
@@ -357,11 +363,16 @@ DisplayRowText DisplayRowAt(int row) {
         return {"Monitor", name, "The display the game window is on."};
     }
     case RowVsync:
-        return {"VSync", s.vsync ? "On" : "Off", "Waits for the monitor: no tearing, slightly more input delay."};
+        return {"VSync", s.vsync ? "On" : s.tearing ? "Off, tearing allowed" : "Off",
+                "On waits for the monitor: no tearing, slightly more input delay. Off shows the newest frame "
+                "at each refresh, still without tearing. Off, tearing allowed shows each frame at once: the "
+                "least delay, and the only way past twice the refresh rate."};
     case RowFps: {
         const int fps = s.fps_limit;
-        return {"Frame rate limit", fps ? std::to_string(fps) + " FPS" : "Display rate",
-                "Caps how often frames are shown. Display rate follows the monitor's refresh."};
+        return {"Frame rate limit",
+                fps == TheatrhythmGraphics::FpsUnlimited ? "Unlimited" : fps ? std::to_string(fps) + " FPS" : "Display rate",
+                "Caps how often frames are shown. Display rate follows the monitor's refresh. Unlimited is as "
+                "fast as the GPU goes; pair it with VSync off, tearing allowed."};
     }
     case RowQueued: {
         const int queued = s.frames_queued;
