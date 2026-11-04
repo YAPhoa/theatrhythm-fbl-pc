@@ -1868,13 +1868,26 @@ void main_frame() {
     folder_row("Save folder:", ui.save, "the game's save folder (Install puts packs in its addcont folder)", "Select the save folder", sy, W,
                lx, [] { store_settings(); });
     ImGui::EndDisabled();
-    float ly = gy - px(12) - px(kBottom), half = std::floor((W - 3 * m) * 3 / 5);
+    // The problems and the log are kBottom high, less what a song's charts need to show all four rows (down
+    // to half of that) under the selection's fields.
+    float top = y + bh + px(10), label_h = ImGui::GetTextLineHeightWithSpacing() + px(6), bottom = px(kBottom);
+    if (selected_song()) {
+        int rows[2] = {0, 0};
+        for (const Field& f : ui.fields)
+            if (field_visible(f))
+                ++rows[f.spec->kind == Kind::File || f.spec->kind == Kind::Check || f.spec->kind == Kind::Editor];
+        float fields_end = top + px(28) + static_cast<float>((rows[0] + 1) / 2 + (rows[1] + 1) / 2) * (rh + gap) + px(8) + px(4);
+        float need = 5 * (ImGui::GetTextLineHeight() + 2 * ImGui::GetStyle().CellPadding.y) + px(6);
+        float room = gy - px(12) - px(kBottom) - label_h - fields_end;
+        bottom = std::clamp(px(kBottom) - (need - room), std::floor(px(kBottom) / 2), px(kBottom));
+    }
+    float ly = gy - px(12) - bottom, half = std::floor((W - 3 * m) * 3 / 5);
     text_at("Problems:", m, ly - ImGui::GetTextLineHeightWithSpacing());
     ImGui::SetCursorPos(ImVec2(m, ly));
-    table("##problems", {{"Type", 64}, {"Location", 170}, {"Description", 0}}, ui.problem_rows, ImVec2(half, px(kBottom)));
+    table("##problems", {{"Type", 64}, {"Location", 170}, {"Description", 0}}, ui.problem_rows, ImVec2(half, bottom));
     text_at("Log:", 2 * m + half, ly - ImGui::GetTextLineHeightWithSpacing());
     ImGui::SetCursorPos(ImVec2(2 * m + half, ly));
-    ImGui::BeginChild("##log", ImVec2(W - 3 * m - half, px(kBottom)), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
+    ImGui::BeginChild("##log", ImVec2(W - 3 * m - half, bottom), ImGuiChildFlags_Borders, ImGuiWindowFlags_HorizontalScrollbar);
     ImGui::TextUnformatted(ui.log.c_str(), ui.log.c_str() + ui.log.size());
     if (ui.log_scroll) {
         ImGui::SetScrollHereY(1.0f);
@@ -1887,8 +1900,8 @@ void main_frame() {
     }
     ImGui::EndChild();
 
-    // Middle: the tree, and the selection's fields.
-    float top = y + bh + px(10), mid_bottom = ly - ImGui::GetTextLineHeightWithSpacing() - px(6);
+    // Middle: the tree, and the selection's heading with Save beside it, its fields and a song's charts.
+    float mid_bottom = ly - label_h;
     float tw = px(kTreeWidth);
     ImGui::SetCursorPos(ImVec2(m, top));
     ImGui::BeginDisabled(ui.busy);
@@ -1930,7 +1943,7 @@ void main_frame() {
     {
         ImGui::SetCursorPos(ImVec2(rx, top));
         ImVec2 o = ImGui::GetCursorScreenPos();
-        std::string heading = ellipsis(ui.heading, rw);
+        std::string heading = ellipsis(ui.heading, rw - bw - gap);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         dl->AddText(o, ImGui::GetColorU32(ImGuiCol_Text), heading.c_str());
         dl->AddText(ImVec2(o.x + 1, o.y), ImGui::GetColorU32(ImGuiCol_Text), heading.c_str()); // bold
@@ -1944,8 +1957,8 @@ void main_frame() {
     bool from_video = false;
     if (Field* box = field("audio_from_video"); box && r && ui.sel_song >= 0 && (*r)["clone"].empty())
         from_video = box->check;
-    bool save_pressed = false;
     ImGui::BeginDisabled(ui.busy);
+    bool save_pressed = button_at("Save", rx + rw - bw, top - px(4), bw, bh, ui.dirty);
     for (Kind pass : {Kind::Text, Kind::File}) { // values in two columns, then files in two columns
         i = 0;
         for (size_t k = 0; k < ui.fields.size(); ++k) {
@@ -1994,13 +2007,11 @@ void main_frame() {
             ImGui::PopID();
             ++i;
         }
-        if (pass == Kind::File && i % 2) // Save fills the free half of the last row
-            save_pressed |= button_at("Save", rx + rw - bw, fy + static_cast<float>(i / 2) * (rh + gap) - px(1), bw, rh + px(2), ui.dirty);
         fy += static_cast<float>((i + 1) / 2) * (rh + gap) + (pass == Kind::Text ? px(8) : 0);
     }
     bool dlc = r && ui.sel_song < 0;
     if (dlc) { // each logo under its field
-        float ph = std::clamp(mid_bottom - fy - bh - gap, px(60), px(260));
+        float ph = std::clamp(mid_bottom - fy - px(4), px(60), px(260));
         for (int k = 0; k < 2; ++k) {
             Preview& p = ui.previews[k];
             update_preview(p);
@@ -2021,10 +2032,6 @@ void main_frame() {
             }
         }
         fy += ph + gap;
-    }
-    if (i % 2 == 0) {
-        save_pressed |= button_at("Save", rx + rw - bw, fy, bw, bh, ui.dirty);
-        fy += bh + gap;
     }
     ImGui::EndDisabled();
     fy += px(4);
@@ -2192,7 +2199,7 @@ int main(int argc, char** argv) {
         SDL_Quit();
         return 2;
     }
-    SDL_SetWindowMinimumSize(ui.main.wnd, std::min(static_cast<int>(px(900)), work.w), std::min(static_cast<int>(px(640)), work.h));
+    SDL_SetWindowMinimumSize(ui.main.wnd, w, h); // the fixed size, or maximized (resizable only so it can be)
     set_icon(ui.main.wnd);
     ui.busy_cursor = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_PROGRESS);
     ImGui::SetCurrentContext(ui.main.ctx);

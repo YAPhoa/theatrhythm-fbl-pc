@@ -485,6 +485,36 @@ void list_columns(HWND list, std::initializer_list<std::pair<const wchar_t*, int
     }
 }
 
+// A list's header row with visible borders: Windows 11's theme draws hardly any line under it or between
+// its columns. The header's custom-draw notices go to the list, hence the subclass.
+LRESULT CALLBACK header_borders(HWND list, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR) {
+    if (msg == WM_NOTIFY) {
+        auto* cd = reinterpret_cast<NMCUSTOMDRAW*>(lp);
+        HWND header = reinterpret_cast<HWND>(SendMessageW(list, LVM_GETHEADER, 0, 0));
+        if (cd->hdr.hwndFrom == header && cd->hdr.code == NM_CUSTOMDRAW) {
+            if (cd->dwDrawStage == CDDS_PREPAINT)
+                return CDRF_NOTIFYPOSTPAINT;
+            if (cd->dwDrawStage == CDDS_POSTPAINT) {
+                RECT rc;
+                GetClientRect(header, &rc);
+                HPEN pen = CreatePen(PS_SOLID, 1, RGB(160, 160, 160)), old = static_cast<HPEN>(SelectObject(cd->hdc, pen));
+                MoveToEx(cd->hdc, rc.left, rc.bottom - 1, nullptr);
+                LineTo(cd->hdc, rc.right, rc.bottom - 1);
+                int n = static_cast<int>(SendMessageW(header, HDM_GETITEMCOUNT, 0, 0));
+                for (int i = 0; i < n; ++i) {
+                    RECT item;
+                    SendMessageW(header, HDM_GETITEMRECT, i, reinterpret_cast<LPARAM>(&item));
+                    MoveToEx(cd->hdc, item.right - 1, item.top, nullptr);
+                    LineTo(cd->hdc, item.right - 1, item.bottom);
+                }
+                DeleteObject(SelectObject(cd->hdc, old));
+                return CDRF_DODEFAULT;
+            }
+        }
+    }
+    return DefSubclassProc(list, msg, wp, lp);
+}
+
 void list_row(HWND list, const std::vector<std::wstring>& cells) {
     LVITEMW it = {};
     it.mask = LVIF_TEXT;
@@ -1804,19 +1834,10 @@ void layout() {
         place(edit, m + px(112), row, W - 2 * m - px(112) - bw - gap, rh);
         place(btn, W - m - bw, row - px(1), bw, bh);
     }
-    int ly = gy - px(12) - px(kBottom), half = (W - 3 * m) * 3 / 5;
-    place(g_problems_label, m, ly - px(18), half, px(18));
-    place(ui.problems, m, ly, half, px(kBottom));
-    place(g_log_label, 2 * m + half, ly - px(18), W - 3 * m - half, px(18));
-    place(ui.log, 2 * m + half, ly, W - 3 * m - half, px(kBottom));
-    // Middle: the tree, and the selection's fields.
-    int top = y + bh + px(10), mid_bottom = ly - px(24);
-    int tw = px(kTreeWidth);
-    place(ui.tree, m, top, tw, mid_bottom - top - bh - gap);
-    place(ui.by_id[kNewDlc], m, mid_bottom - bh, (tw - gap) / 2, bh);
-    place(ui.by_id[kNewSong], m + (tw + gap) / 2, mid_bottom - bh, tw - (tw + gap) / 2, bh);
-    int rx = m + tw + m, rw = W - rx - m;
-    place(ui.heading, rx, top, rw, px(20));
+    // Middle: the tree, and the selection's heading with Save beside it, its fields and a song's charts.
+    const int top = y + bh + px(10), tw = px(kTreeWidth), rx = m + tw + m, rw = W - rx - m;
+    place(ui.heading, rx, top, rw - bw - gap, px(20));
+    place(ui.save_button, rx + rw - bw, top - px(4), bw, bh);
     int fy = top + px(28), col = (rw - px(16)) / 2, lw = px(kLabel), cb = px(80);
     int i = 0;
     for (Kind pass : {Kind::Text, Kind::File}) { // values in two columns, then files in two columns
@@ -1839,29 +1860,41 @@ void layout() {
             }
             ++i;
         }
-        if (pass == Kind::File && i % 2) // Save fills the free half of the last row
-            place(ui.save_button, rx + rw - bw, fy + (i / 2) * (rh + gap) - px(1), bw, rh + px(2));
         fy += ((i + 1) / 2) * (rh + gap) + (pass == Kind::Text ? px(8) : 0);
     }
-    bool dlc = selected_record() && ui.sel_song < 0;
+    fy += px(4);
+    // The problems and the log are kBottom high, less what a song's charts need to show all four rows (down
+    // to half of that).
+    bool song = selected_record() && ui.sel_song >= 0, dlc = selected_record() && ui.sel_song < 0;
+    int bottom = px(kBottom);
+    if (song) {
+        int need = HIWORD(SendMessageW(ui.charts, LVM_APPROXIMATEVIEWRECT, 4, MAKELPARAM(-1, -1))) + px(4);
+        int room = gy - px(12) - px(24) - px(kBottom) - fy;
+        bottom = std::clamp(px(kBottom) - (need - room), px(kBottom) / 2, px(kBottom));
+    }
+    int ly = gy - px(12) - bottom, half = (W - 3 * m) * 3 / 5, mid_bottom = ly - px(24);
+    place(g_problems_label, m, ly - px(18), half, px(18));
+    place(ui.problems, m, ly, half, bottom);
+    place(g_log_label, 2 * m + half, ly - px(18), W - 3 * m - half, px(18));
+    place(ui.log, 2 * m + half, ly, W - 3 * m - half, bottom);
+    place(ui.tree, m, top, tw, mid_bottom - top - bh - gap);
+    place(ui.by_id[kNewDlc], m, mid_bottom - bh, (tw - gap) / 2, bh);
+    place(ui.by_id[kNewSong], m + (tw + gap) / 2, mid_bottom - bh, tw - (tw + gap) / 2, bh);
     for (int k = 0; k < 2; ++k)
         ShowWindow(ui.previews[k].wnd, dlc ? SW_SHOW : SW_HIDE);
     if (dlc) { // each logo under its field
-        int ph = std::clamp(mid_bottom - fy - bh - gap, px(60), px(260));
+        int ph = std::clamp(mid_bottom - fy, px(60), px(260));
         for (int k = 0; k < 2; ++k) {
             int x = rx + k * (col + px(16)) + lw, pw = col - lw;
-            place(ui.previews[k].wnd, x, fy - px(2), pw, ph);
+            place(ui.previews[k].wnd, x, fy - px(6), pw, ph);
             update_preview(ui.previews[k], pw, ph);
         }
-        fy += ph + gap;
     }
-    if (i % 2 == 0) {
-        place(ui.save_button, rx + rw - bw, fy, bw, bh);
-        fy += bh + gap;
-    }
-    fy += px(4);
     place(ui.charts, rx, fy, rw, mid_bottom - fy);
-    InvalidateRect(ui.wnd, nullptr, TRUE);
+    SendMessageW(ui.charts, LVM_SETCOLUMNWIDTH, 5, LVSCW_AUTOSIZE_USEHEADER); // Check fills the rest: no sideways scroll bar
+    // place() moves without repainting: redraw the window and every control, or moved ones stay blank or
+    // leave their old image behind.
+    RedrawWindow(ui.wnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 // The release is this exe alone (tools/package.py --dlcmaker): ffmpeg.exe is a zip appended to it, then
@@ -1996,12 +2029,14 @@ void create_controls() {
         p.wnd = add(WC_STATICW, L"", SS_BITMAP | SS_CENTERIMAGE | SS_SUNKEN, 0);
 
     ui.charts = add(WC_LISTVIEWW, L"", WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | LVS_NOSORTHEADER, kCharts);
-    SendMessageW(ui.charts, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    SendMessageW(ui.charts, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_GRIDLINES);
+    SetWindowSubclass(ui.charts, header_borders, 0, 0);
     list_columns(ui.charts, {{L"Difficulty", 90}, {L"Level", 50}, {L"Notes", 60}, {L"BPM", 60}, {L"File", 120}, {L"Check", 260}});
 
     g_problems_label = label(L"Problems:");
     ui.problems = add(WC_LISTVIEWW, L"", WS_TABSTOP | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | LVS_NOSORTHEADER, kProblems);
-    SendMessageW(ui.problems, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP);
+    SendMessageW(ui.problems, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_INFOTIP | LVS_EX_GRIDLINES);
+    SetWindowSubclass(ui.problems, header_borders, 0, 0);
     list_columns(ui.problems, {{L"Type", 64}, {L"Location", 170}, {L"Description", 1000}});
     g_log_label = label(L"Log:");
     ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kLog, WS_EX_CLIENTEDGE);
@@ -2216,11 +2251,6 @@ LRESULT CALLBACK wnd_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (ui.heading)
             layout();
         return 0;
-    case WM_GETMINMAXINFO: {
-        auto* mm = reinterpret_cast<MINMAXINFO*>(lp);
-        mm->ptMinTrackSize = {px(900), px(640)};
-        return 0;
-    }
     case WM_CTLCOLORSTATIC: {
         HWND h = reinterpret_cast<HWND>(lp);
         bool box = h == ui.log;
@@ -2315,10 +2345,10 @@ int run_window(HINSTANCE inst) {
     lc.lpszClassName = L"theatrhythm_dlcmaker_panel";
     RegisterClassExW(&lc);
 
-    // 1060 x 760 at 96 dpi, within the work area.
+    // 1060 x 760 at 96 dpi, within the work area: a fixed size, or maximized (no resizing border).
     RECT work;
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
-    const DWORD style = WS_OVERLAPPEDWINDOW;
+    const DWORD style = WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME;
     RECT r = {0, 0, px(1060), px(760)};
     AdjustWindowRectExForDpi(&r, style, FALSE, 0, ui.dpi);
     int w = std::min<int>(r.right - r.left, work.right - work.left), h = std::min<int>(r.bottom - r.top, work.bottom - work.top);
