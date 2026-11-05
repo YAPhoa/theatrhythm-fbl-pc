@@ -577,8 +577,11 @@ static ABI void rtld_atexit_decrement(void) { __atomic_sub_fetch(&rtld_atexit_pe
  * sceKernelRemoveExceptionHandler(signum) clears it. sceKernelRaiseException(thread, SIGUSR1)
  * runs the handler on that thread as handler(signum, ucontext*): the IL2CPP collector suspends
  * threads this way and reads the stack pointer from the context (PS4Util.prx). Windows: a thread
- * running user code is suspended and resumed at redzone_deliver, which runs the handler on it
- * below its red zone (no APC: Wine places those differently). A thread stopped in a system call
+ * running guest code is suspended and resumed at redzone_deliver, which runs the handler on it
+ * below its red zone (no APC: Wine places those differently). One running host code is let go
+ * until it is back in guest code or blocked, since it may hold a lock the handler takes (the
+ * handler then waited on an event flag while its own thread held their lock: a black screen).
+ * A thread stopped in a system call
  * (a blocking wait) stays suspended while a proxy host thread, with the target's thread record and
  * TCB, runs the handler, and resumes when it returns; register changes are not written back there.
  * Linux: a host signal runs it on the thread itself, in guest code or blocked in a wait.
@@ -670,6 +673,14 @@ static void leave_resume(CONTEXT *c) {
         c->Rip=*(const uint64_t *)(uintptr_t)(c->Rsp-RESUME_GAP);
     }
 }
+/* Host code (the runner, its DLLs, Windows) is mapped as executable images; the game image, its
+ * rewrite stubs and the hook stubs are not. */
+static int host_code(DWORD64 rip) {
+    MEMORY_BASIC_INFORMATION m;
+    return VirtualQuery((const void *)(uintptr_t)rip,&m,sizeof(m)) && m.Type==MEM_IMAGE;
+}
+/* About two seconds of retries before a thread still in host code is handled by a proxy. */
+#define RAISE_TRIES 2000
 /* Runs on the interrupted thread from redzone_deliver; the reported stack pointer is this frame's
  * context copy, and registers the handler changes are written back on return (rip and rsp through
  * the slots). */
@@ -784,19 +795,37 @@ static ABI int32_t raise_exception(GuestThread *t,int32_t signum) {
     __atomic_add_fetch(&exceptions_raised,1,__ATOMIC_RELAXED);
 #ifdef _WIN32
     if (t==current) { deliver_to_self(signum); return 0; }
-    /* Suspended under the lock its exit takes: the handle stays open and the thread alive. */
-    pthread_mutex_lock(&lock);
-    HANDLE h=t->finished ? NULL : t->os_handle;
-    DWORD suspended=h ? SuspendThread(h) : (DWORD)-1;
-    pthread_mutex_unlock(&lock);
-    if (suspended==(DWORD)-1) return ERR(3);
     Proxy *x=malloc(sizeof(*x));
-    if (!x) { ResumeThread(h); return ERR(12); }
-    *x=(Proxy){.t=t,.h=h,.signum=signum};
-    x->c.ContextFlags=CONTEXT_FULL;
-    if (!GetThreadContext(h,&x->c)) { ResumeThread(h); free(x); return ERR(3); }
-    const unsigned char *rip=(const unsigned char *)(uintptr_t)x->c.Rip;
-    if (rip[-2]==0x0f && rip[-1]==0x05) { /* stopped just after a syscall instruction */
+    if (!x) return ERR(12);
+    HANDLE h;
+    int proxy_it=0;
+    for (unsigned tries=0;;++tries) {
+        /* Suspended under the lock its exit takes: the handle stays open and the thread alive. */
+        pthread_mutex_lock(&lock);
+        h=t->finished ? NULL : t->os_handle;
+        DWORD suspended=h ? SuspendThread(h) : (DWORD)-1;
+        pthread_mutex_unlock(&lock);
+        if (suspended==(DWORD)-1) { free(x); return ERR(3); }
+        *x=(Proxy){.t=t,.h=h,.signum=signum};
+        x->c.ContextFlags=CONTEXT_FULL;
+        if (!GetThreadContext(h,&x->c)) { ResumeThread(h); free(x); return ERR(3); }
+        const unsigned char *rip=(const unsigned char *)(uintptr_t)x->c.Rip;
+        if (rip[-2]==0x0f && rip[-1]==0x05) { proxy_it=1; break; } /* stopped just after a syscall instruction */
+        leave_resume(&x->c);
+        if (!host_code(x->c.Rip)) break;
+        /* Inside the runtime, a host library or a handler on its way out: it may hold a lock the
+         * handler needs (every event flag shares one, and the IL2CPP handler waits on a flag), so
+         * it runs on until it is back in guest code or blocked. */
+        if (tries==RAISE_TRIES) {
+            printf("Runtime: thread '%s' stayed in host code at %p for a guest exception; handled from another thread\n",
+                   t->name,(void *)(uintptr_t)x->c.Rip);
+            proxy_it=1;
+            break;
+        }
+        ResumeThread(h);
+        if (tries<64) SwitchToThread(); else Sleep(1);
+    }
+    if (proxy_it) {
         pthread_t proxy; pthread_attr_t attr;
         pthread_attr_init(&attr); pthread_attr_setstacksize(&attr,DEFAULT_STACK);
         int e=pthread_create(&proxy,&attr,proxy_deliver,x);
