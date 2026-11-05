@@ -113,6 +113,32 @@ Shader caches are kept in `~/.cache/theatrhythm-fbl`.
 Unzip (on Linux, extract) the new release over the old folder, then run the setup once more (the
 game asks you to). Your folders, saves and settings are kept.
 
+## Adding DLC
+
+The game's own DLC works from a decrypted dump of DLC you own. Each add-on is one folder in
+`addcont` inside your save folder:
+
+```
+<save folder>/
+  addcont/
+    <label>/
+      dlcparam.json
+      catalog.json
+      ...
+```
+
+1. Close the game.
+2. Make a folder `addcont` in your save folder (the one you chose in setup; by default `save` inside
+   the release folder).
+3. Copy each DLC into it as a folder of its own, with `dlcparam.json` directly inside. Name the
+   folder after the DLC's label, the part of its content ID after the last `-`. Any name of up to
+   16 characters works; longer ones are skipped.
+4. Start the game: it finds the DLC at boot.
+
+To remove a DLC, delete its folder. Custom song packs from [dlcmaker](tools/dlcmaker/README.md) go in
+the same place (its **Install** puts them there). Setup copies only your saves when the save folder
+moves, so move `addcont` yourself.
+
 ## Settings
 
 Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,
