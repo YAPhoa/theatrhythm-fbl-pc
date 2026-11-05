@@ -81,7 +81,9 @@ runtime already implements) and appends the matches to `src/import_names.inc`.
 
 `theatrhythm-setup.exe` (`setup/`) runs `prepare/run.py prepare` into `game/` beside it, rewrites the
 game's instructions for this CPU if needed, writes `settings.ini` from the template when there is
-none, and writes `paths.ini` with the game and save folders. No release contains a save folder, so
+none, sets its `skip_opening` line from the window's checkbox (in the save folder's `settings.ini`
+too, when there is one, since the game reads that one first), and writes `paths.ini` with the game
+and save folders. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
 window: `theatrhythm-setup.exe --help`.
@@ -122,8 +124,8 @@ picker does (`LanguageController.SwitchLanguage` with `FontResourceManager.Insta
 `Backup.ReserveSave`), byte patches keep the choice through the setter and a reload, and a stub
 gives the picker of six a cursor on English when the language is one of the other three.
 
-These patches, the field walk below and the DLC window's bonus row (`src/runtime_dlc_bonus.c`)
-work on every game version they know the code of (1.00 and 1.04 so far). The log's first lines name the version (`Game: CUSA32853 version 01.04, ...`: param.sfo's
+These patches, the field walk below, the DLC window's bonus row (`src/runtime_dlc_bonus.c`) and the
+opening skip (`src/runtime_skip_opening.c`) work on every game version they know the code of (1.00 and 1.04 so far). The log's first lines name the version (`Game: CUSA32853 version 01.04, ...`: param.sfo's
 `APP_VER` and the module's SHA-256 from `link.json`; a dump that mixes two versions' files says so).
 `src/runtime_game_code.c` finds each place the patches use by its C# name in the game's own
 metadata (`Media/Metadata/global-metadata.dat` and the module's code generation tables, as
@@ -141,6 +143,13 @@ idle from how far the character moved since the last frame, with thresholds made
 above that (an uncapped `fps_limit`) the party slid along in its idle pose. `src/runtime_field_walk.c`
 sends that comparison through a stub that divides the distance by (60 x `Time.deltaTime`)^2, so
 any frame rate reads like 60; at 60 fps the result is unchanged.
+
+After the start-up logo the game always goes to the Opening scene (`StartUpLogoMain.OnTimelineEvent`
+picks it unless first-time setup is due); the movie can be skipped with Options only once
+`UserInfo.LookedOpeningDemo` is set. With `skip_opening=1` in `settings.ini` (the setup's checkbox),
+`src/runtime_skip_opening.c` sends the first `OpeningMain.OnReady` of each start to
+`OpeningMain.endMovie`, the movie's own end: it marks the movie seen and goes to the title screen
+before the movie starts. Later Opening scenes in the same session play as before.
 
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`

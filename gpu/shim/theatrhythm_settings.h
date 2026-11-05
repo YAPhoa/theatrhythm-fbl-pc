@@ -75,6 +75,9 @@ struct Values {
     std::string pad_map, key_map;
     /// Dialog confirmation button: 0 Cross confirms, Circle cancels; 1 the other way round.
     std::atomic<int> menu_confirm_swap{0};
+    /// Start at the title screen: the opening movie after the logo is skipped (src/runtime_skip_opening.c);
+    /// read once, before the game starts.
+    bool skip_opening = false;
     /// Master volume of the game's audio in percent, 0 to 200: above 100 boosts the mix behind a
     /// soft limiter (src/runtime_audio.c).
     std::atomic<int> master_volume{MasterVolumeDefault};

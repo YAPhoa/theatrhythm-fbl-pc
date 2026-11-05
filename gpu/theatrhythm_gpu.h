@@ -66,6 +66,9 @@ const char *theatrhythm_button_icons(void);
 /* 1 when settings.ini render_resolution (THEATRHYTHM_RENDER_RESOLUTION) is 4k: the game runs in PS4
  * Pro mode with a 3840x2160 video out. Valid once theatrhythm_gpu_init returned. */
 int theatrhythm_render_4k(void);
+/* 1 when settings.ini skip_opening (THEATRHYTHM_SKIP_OPENING) is on: the start goes from the logo to
+ * the title screen without the opening movie. Valid once theatrhythm_gpu_init returned. */
+int theatrhythm_skip_opening(void);
 /* sceCommonDialogInitialize ran (runtime_services.c): the upstream dialog libraries check it. */
 void theatrhythm_gpu_common_dialog_initialized(void);
 /* Master volume of the game's audio (settings.ini master_volume), 0 to 200 percent (100: the
