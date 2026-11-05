@@ -122,6 +122,20 @@ picker does (`LanguageController.SwitchLanguage` with `FontResourceManager.Insta
 `Backup.ReserveSave`), byte patches keep the choice through the setter and a reload, and a stub
 gives the picker of six a cursor on English when the language is one of the other three.
 
+These patches, the field walk below and the DLC window's bonus row (`src/runtime_dlc_bonus.c`)
+work on every game version they know the code of (1.00 and 1.04 so far). The log's first lines name the version (`Game: CUSA32853 version 01.04, ...`: param.sfo's
+`APP_VER` and the module's SHA-256 from `link.json`; a dump that mixes two versions' files says so).
+`src/runtime_game_code.c` finds each place the patches use by its C# name in the game's own
+metadata (`Media/Metadata/global-metadata.dat` and the module's code generation tables, as
+`tools/il2cpp_symbols.py` does), then checks the code there against a byte pattern with wildcards
+for addresses; code without a name of its own (shared generic code, a spot inside a method) is found
+by its pattern, which must match the expected number of times. Where a version's code differs
+(1.04's `ConfigSliderBehaviour`), the site lists a pattern per version. When a site is missing, the
+patch is skipped as a whole and the log names it (`Display page: <method> not found in game ...`);
+without the Options button, a notice on screen says Display Settings is on F10. After a game update,
+`python tools/game_code.py check DUMP...` shows every site in each dump (and FAIL for one it
+cannot find); `make` writes a pattern for a method.
+
 On field stages the party walks between enemies: `StageCharacter.MyLateUpdate` picks run, walk or
 idle from how far the character moved since the last frame, with thresholds made for 60 fps, so
 above that (an uncapped `fps_limit`) the party slid along in its idle pose. `src/runtime_field_walk.c`
@@ -144,6 +158,6 @@ when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEAT
 | `packaging/windows/` | Manifest, resources and icon of the game exe; `diagnose/`, the debug package's glitch kit |
 | `assets/button_icons/` | Xbox and keyboard icon sheets (PNG, and the game's texture format from `tools/encode_button_icons.py`) |
 | `assets/config_icon/` | Display Settings icon for the Options menu (PNG patch, and its atlas blocks from `tools/encode_config_icon.py`) |
-| `tools/` | `package.py` (the release), `name_imports.py` (names NIDs), `got_import.py` (names a GOT slot), Frida and IL2CPP tracing helpers |
+| `tools/` | `package.py` (the release), `name_imports.py` (names NIDs), `got_import.py` (names a GOT slot), `game_code.py` (the patched game code in each dump), Frida and IL2CPP tracing helpers |
 | `tests/` | Python tests (`cd tests; python -m unittest`) and C/C++ test targets (`gpu/CMakeLists.txt`) |
 | `docs/` | This guide and [building.md](building.md) |

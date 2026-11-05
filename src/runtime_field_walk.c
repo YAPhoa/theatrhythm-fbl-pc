@@ -3,18 +3,20 @@
  * above 1e-6), thresholds made for 60 frames a second: uncapped, the party slides along a field in
  * its idle pose. Its comparison jumps to a stub that first divides that distance by (60 dt)^2 (dt:
  * Time.deltaTime), the distance it would have moved in a 60th of a second; at 60 fps it is the same.
- * The site's bytes are checked first, so another game version keeps its own code. */
+ * The site is found by name and bytes (runtime_game_code.c): a game version without that code
+ * keeps its own. */
 #include "runtime.h"
 #include <stdio.h>
 #include <string.h>
 
 /* MyLateUpdate: vaddss xmm0,xmm1,xmm0 (the squared distance); vucomiss xmm0,[rip+run threshold],
  * then jae run. The stub ends with the comparison and jumps back to the jae. */
-#define WALK_SITE 0x1d50992
-#define WALK_RUN_THRESHOLD 0x4617020
-#define TIME_GET_DELTA_TIME 0x1e32990 /* UnityEngine.Time::get_deltaTime */
+enum { WALK_SITE, TIME_GET_DELTA_TIME, SITES };
+static const GameSite sites[SITES]={
+    {"Game.Scene.MusicStage.StageCharacter::MyLateUpdate", 1, 0, 0, {"c5 f2 58 c0 c5 f8 2e 05 ?? ?? ?? ?? 73 60"}},
+    {"UnityEngine.Time::get_deltaTime", 0, 0, 0, {""}},
+};
 static const unsigned char run_threshold[]={0x5a,0x85,0x4d,0x38}; /* the game's 4.9e-5f */
-static const unsigned char walk_site[]={0xc5,0xf2,0x58,0xc0, 0xc5,0xf8,0x2e,0x05,0x82,0x66,0x8c,0x02, 0x73,0x60};
 #define WALK_SITE_LENGTH 12
 
 static unsigned char *emit(unsigned char *p, const void *bytes, size_t size) { memcpy(p,bytes,size); return p+size; }
@@ -25,15 +27,22 @@ static unsigned char *rel32(unsigned char *p, int end, const unsigned char *targ
 }
 
 int runtime_field_walk_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size) {
-    unsigned char *module=image+module_base, *site=module+WALK_SITE;
-    if (memcmp(site,walk_site,sizeof walk_site) || memcmp(module+WALK_RUN_THRESHOLD,run_threshold,4) || size<160) {
-        printf("Field walk: game code differs at 0x%llx; the walk follows the frame rate\n",(unsigned long long)WALK_SITE);
+    unsigned char *module=image+module_base;
+    GameCode at[SITES];
+    if (runtime_game_code_find(sites,SITES,at,"Field walk")) {
+        printf("Field walk: the walk follows the frame rate\n");
+        return -1;
+    }
+    unsigned char *site=module+at[WALK_SITE].offset;
+    int32_t disp; memcpy(&disp,site+8,4); /* the vucomiss operand: the run threshold */
+    if (memcmp(site+WALK_SITE_LENGTH+disp,run_threshold,4) || size<160) {
+        printf("Field walk: the run threshold differs in game %s; the walk follows the frame rate\n",runtime_game_version());
         return -1;
     }
     unsigned char *data=stubs+128, *p=stubs; /* data: 60.0f, the run threshold */
     const float sixty=60.0f;
     memcpy(data,&sixty,4); memcpy(data+4,run_threshold,4);
-    const uint64_t delta_time=(uint64_t)(uintptr_t)(module+TIME_GET_DELTA_TIME), back=(uint64_t)(uintptr_t)(site+WALK_SITE_LENGTH);
+    const uint64_t delta_time=(uint64_t)(uintptr_t)(module+at[TIME_GET_DELTA_TIME].offset), back=(uint64_t)(uintptr_t)(site+WALK_SITE_LENGTH);
     p=emit(p,(const unsigned char[]){0xf3,0x0f,0x58,0xc1},4);                   /* addss xmm0,xmm1: the distance */
     p=emit(p,(const unsigned char[]){0x48,0x83,0xec,0x40},4);                   /* sub rsp,0x40 (rsp stays 16-aligned) */
     p=emit(p,(const unsigned char[]){0x0f,0x11,0x04,0x24},4);                   /* movups [rsp],xmm0 */

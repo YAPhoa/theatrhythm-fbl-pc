@@ -5,8 +5,9 @@
  *
  * Game functions (Il2CppUserAssemblies) are hooked at their entry: the first instructions move to a
  * stub that saves the argument registers, calls a runner function with them, and then either returns
- * a value for the game function or runs the moved instructions and goes on into it. Every site's
- * bytes are checked first, so another game version keeps its own pages. */
+ * a value for the game function or runs the moved instructions and goes on into it. Every site is
+ * found by name and checked by its bytes first (runtime_game_code.c): a game version where one is
+ * missing keeps its own pages, and Display Settings stays on F10. */
 #include "runtime.h"
 #include "gpu/theatrhythm_gpu.h"
 #include <stdio.h>
@@ -18,9 +19,7 @@
 typedef struct { uint64_t rdi, rsi, rdx, rcx, r8, r9, rax, rdx_out; } HookRegs;
 typedef int (ABI *HookFn)(HookRegs *regs);
 typedef struct {
-    uint64_t offset;             /* function in Il2CppUserAssemblies */
-    unsigned char length;        /* prologue bytes moved to the stub (no rip-relative operands) */
-    unsigned char prologue[16];
+    int site;                    /* the function (sites: its moved prologue bytes, no rip-relative operands) */
     HookFn fn;
     unsigned char floats;        /* xmm argument registers the game function takes (kept for it) */
 } Hook;
@@ -32,7 +31,132 @@ static uint64_t load(const void *p) { uint64_t v; memcpy(&v,p,8); return v; }
 static int32_t load32(const void *p) { int32_t v; memcpy(&v,p,4); return v; }
 static void put(void *p, uint64_t v) { memcpy(p,&v,8); }
 static void put32(void *p, int32_t v) { memcpy(p,&v,4); }
-#define GUEST(offset) ((void *)(module+(offset)))
+
+/* The game code used here (runtime_game_code.c): hooked functions (H_), byte patches (P_) and
+ * functions called (C_). Patterns from tools/game_code.py; a second one where 1.04 differs. */
+enum {
+    H_SWITCH_LAYER, H_TRANSLATE, H_SET_TEXT_A, H_SET_TEXT_B, H_LANGUAGE_CHANGED_A, H_LANGUAGE_CHANGED_B,
+    H_BUTTON_VALUE, H_BUTTON_SET_INDEX, H_SLIDER_VALUE, H_SLIDER_SET_INDEX, H_INITIALIZE_LIST,
+    H_INITIALIZE_SETTING, H_FILTER_ITEM, H_COMPARE_ITEM, H_SUBMIT, H_SLIDER_HORIZONTAL, H_SELECTOR_HORIZONTAL,
+    H_CHECK_DEFAULT, H_TOP_SWITCH_IN, H_TOP_EXECUTED, H_TOP_SELECT, H_OBJECT_INFO, H_ROW_VIEW, H_HELP_ENTRY,
+    H_LANGUAGE_INPUT,
+    P_REGION_CURRENT, P_REGION_WORLD, P_REGION_JAPAN, P_SET_DISPLAY_LANGUAGE, P_DESERIALIZE, P_PICKER,
+    C_REFRESH_VIEW, C_PLAY_SE, C_LANGUAGE_CONTROLLER, C_LANGUAGE_CHANGED, C_GET_TRANSFORM, C_GET_PARENT,
+    C_CHILD_COUNT, C_GET_CHILD, C_GET_NAME, C_GET_GAME_OBJECT, C_GET_COMPONENT, C_SPRITE_PACKED,
+    C_SPRITE_PACKING_MODE, C_SPRITE_TEXTURE, C_SPRITE_TEXTURE_RECT, C_SPRITE_RECT, C_SPRITE_RECT_OFFSET,
+    C_SPRITE_PIVOT, C_SPRITE_PIXELS_PER_UNIT, C_CREATE_SPRITE, C_SET_SPRITE, C_CLONE, C_SET_NAME, C_SET_ALPHA,
+    C_GET_TYPE, C_COMPONENT_IN_CHILDREN, C_PARENT_SCENE_PARTS, C_GET_POSITION, C_SET_POSITION, C_REGISTER,
+    C_GET_LOCAL_POSITION, C_SET_LOCAL_POSITION, C_RECT, C_SET_ACTIVE, C_ON_INITIALIZE_SETTING,
+    C_FONT_RESOURCES, C_SWITCH_LANGUAGE, C_CONFIG_INFO, C_RESERVE_SAVE, C_END_ACTION, SITES
+};
+/* LocalizedTextBase<T> (shared generic code, two instances; no method of its own). */
+#define SET_TEXT_BY_TERM "55 48 89 e5 41 56 53 | 48 8b 46 20 48 89 f3 49 89 fe 48 8b 80 c0 00 00 00 48 8b 70 78 ff 56 08 " \
+    "48 85 c0 74 3d 48 8b 43 20 4c 89 f7 48 8b 80 c0 00 00 00 48 8b 70 78 ff 56 08 48 89 c7 31 f6 e8 ?? ?? ?? ??"
+#define ON_LANGUAGE_CHANGED "55 48 89 e5 41 57 41 56 | 53 50 48 8b 41 20 49 89 cf 41 89 d6 48 89 fb 48 8b 80 c0 00 00 00 " \
+    "48 8b 70 08 ff 56 08 44 39 f0 75 0b 48 83 c4 08 5b 41 5e 41 5f 5d c3 48 8b 0d ?? ?? ?? ?? 48 85 c9 75 1b"
+#define REGION_LANGUAGE "83 ff 0f 7e 1a 83 ff 22 77 2b" /* cmp edi,15; jle; cmp edi,34; ja (the World region check) */
+static const GameSite sites[SITES]={
+    {"Game.Scene.Config.ConfigMain::switchLayer", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 53 48 83 e4 e0 48 83 ec 60 4c 8b 3d ?? ?? ?? ??"}},
+    {"I2.Loc.LocalizationManager::TryGetTranslation", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 48 83 ec 28 80 3d ?? ?? ?? ?? 00"}},
+    {NULL, 0, 2, 0, {SET_TEXT_BY_TERM}},
+    {NULL, 0, 2, 1, {SET_TEXT_BY_TERM}},
+    {NULL, 0, 2, 0, {ON_LANGUAGE_CHANGED}},
+    {NULL, 0, 2, 1, {ON_LANGUAGE_CHANGED}},
+    {"Game.Scene.Config.ConfigButtonBehaviour::refreshValueText", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 80 3d ?? ?? ?? ?? 00 48 89 fb 75 13 48 8d 3d ?? ?? ?? ??"}},
+    {"Game.Scene.Config.ConfigButtonBehaviour::SetIndex", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 89 77 18 48 89 fb 80 3d ?? ?? ?? ?? 00 75 16 48 8d 3d ?? ?? ?? ??"}},
+    {"Game.Scene.Config.ConfigSliderBehaviour::refreshValueText", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 80 3d ?? ?? ?? ?? 00 48 89 fb 75 13 48 8d 3d ?? ?? ?? ??",
+      "55 48 89 e5 41 57 41 56 | 53 50 80 3d ?? ?? ?? ?? 00 48 89 fb 75 1f 48 8d 3d ?? ?? ?? ??"}},
+    {"Game.Scene.Config.ConfigSliderBehaviour::SetIndex", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 89 77 18 48 89 fb c5 fa 2a c6 48 8b 7f 20 48 8b 07",
+      "55 48 89 e5 53 50 | 89 77 18 48 89 fb c5 fa 2a c6 48 8b 7f 20 48 8b 07 48 8b b0 30 04 00 00"}},
+    {"Game.Scene.Config.ConfigMusicStageEditPartsMain::InitializeList", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 48 83 ec 18 80 3d ?? ?? ?? ?? 00"}},
+    {"Game.Scene.Config.ConfigListItemBase::InitializeSetting", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 54 53 80 3d ?? ?? ?? ?? 00 49 89 fe 75 2b 48 8d 3d ?? ?? ?? ??"}},
+    {"Game.Scene.Config.ConfigMusicStageEditPartsMain::filterItem", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 53 50 80 3d ?? ?? ?? ?? 00 49 89 f7 49 89 fe 75 43"}},
+    {"Game.Scene.Config.ConfigMusicStageEditPartsMain::compareItem", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 53 50 80 3d ?? ?? ?? ?? 00 48 89 d3 49 89 f6 75 13"}},
+    {"Game.Scene.Config.ConfigListItemButton::OnSubmit", 0, 0, 0,
+     {"55 48 89 e5 53 50 | 48 89 fb 48 8b 7f 58 48 85 ff 74 13 83 7f 10 00 74 0d"}},
+    {"Game.Scene.Config.ConfigListItemSlider::OnHorizontalInput", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 48 8b 4f 38 49 89 fe 83 fe 01 8b 41 14 74 11 85 f6"}},
+    {"Game.Scene.Config.ConfigListItemSelector::OnHorizontalInput", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 48 8b 4f 38 89 f0 48 89 fb 83 f8 01 8b 71 14 74 10"}},
+    {"Game.Scene.Config.ConfigMusicStageEditPartsMain::openCheckDefaultWindow", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 48 83 ec 18 80 3d ?? ?? ?? ?? 00"}},
+    {"Game.Scene.Config.ConfigTopLayerMain::Game.ISwitchLayer.SwitchIn", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 48 83 e4 e0 48 83 ec 40 4c 8b 35 ?? ?? ?? ?? 48 89 fb"}},
+    {"Game.Scene.Config.ConfigTopPartsMain::OnExecutedScenePartsMain", 0, 0, 0,
+     {"55 48 89 e5 41 56 53 | 80 3d ?? ?? ?? ?? 00 48 89 f3 75 2b 48 8d 3d ?? ?? ?? ??"}},
+    {"Game.Scene.Config.ConfigTopPartsMain::sendSelectReaction", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 48 83 ec 18 48 8b 05 ?? ?? ?? ??"}},
+    {"Game.ScenePartsMain/UIObjectGroup::GetUIObjectInfo", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 50 80 3d ?? ?? ?? ?? 00 48 89 f3"}},
+    {"Game.Scene.Config.ConfigListItemView::OnSetView", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 50 80 3d ?? ?? ?? ?? 00 49 89 f6"}},
+    {"Game.Scene.Common.CommonMenu.HelpBarContent::RefleshDisplay", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 55 41 54 53 48 83 ec 68 80 3d ?? ?? ?? ?? 00"}},
+    {"Game.Scene.Config.ConfigLanguageMenuEditPartsMain::OnExecutedScenePartsMain", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 | 41 54 53 80 3d ?? ?? ?? ?? 00 49 89 f4 48 89 fb"}},
+    {"Game.Localization.RegionLanguage::GetLanguageAllowedInCurrentRegion", 0, 0, 0, {REGION_LANGUAGE}},
+    {"Game.Localization.RegionLanguage::getLanguageAllowedInWorldRegion", 0, 0, 0, {REGION_LANGUAGE}},
+    {"Game.Localization.RegionLanguage::getLanguageAllowedInJapanRegion", 0, 0, 0, {REGION_LANGUAGE}},
+    {"Game.Backup.ConfigInfo::set_DisplayLanguage", 0, 0, 0, {"83 fe 0f 7e 1d 83 fe 22 77 2e"}},
+    /* the DisplayLanguage field's World region check, up to the store its patch jumps to */
+    {"Game.MessagePackFormatter.Formatters.Game.Backup.ConfigInfoFormatter::Deserialize", 1, 0, 0,
+     {"83 f8 0f 7e 1b 83 f8 22 77 2c 89 c1 48 ba 00 00 60 00 04 00 00 00 48 0f a3 ca 89 c1 72 1d eb 16 "
+      "b9 0a 00 00 00 83 f8 0a 74 11 89 c1 83 e1 fe 83 f9 0e 89 c1 74 05 b9 0a 00 00 00"}},
+    {"Game.Scene.WindowLanguageSetting.WindowLanguageSettingBodyPartsMain/<InitializeSetting>d__5::MoveNext", 1, 0, 0,
+     {"44 8b 60 18 eb 41"}},
+    {"Gummi.Scene.UI.UIListItem::RefreshView", 0, 0, 0, {""}},
+    {"Gummi.Sound.SoundManager::PlaySE", 0, 0, 0, {""}},
+    {"Gummi.Localization.LanguageController::get_Instance", 0, 0, 0, {""}},
+    {"Gummi.Localization.LanguageController/LanguageChangedEventHandler::Invoke", 0, 0, 0, {""}},
+    {"UnityEngine.Component::get_transform", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::get_parent", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::get_childCount", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::GetChild", 0, 0, 0, {""}},
+    {"UnityEngine.Object::get_name", 0, 0, 0, {""}},
+    {"UnityEngine.Component::get_gameObject", 0, 0, 0, {""}},
+    {"UnityEngine.GameObject::GetComponentByName", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_packed", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_packingMode", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_texture", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_textureRect", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_rect", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_textureRectOffset", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_pivot", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::get_pixelsPerUnit", 0, 0, 0, {""}},
+    {"UnityEngine.Sprite::CreateSprite", 0, 0, 0, {""}},
+    {"UnityEngine.UI.Image::set_sprite", 0, 0, 0, {""}},
+    {"UnityEngine.Object::Internal_CloneSingleWithParent", 0, 0, 0, {""}},
+    {"UnityEngine.Object::set_name", 0, 0, 0, {""}},
+    {"UnityEngine.CanvasGroup::set_alpha", 0, 0, 0, {""}},
+    {"System.Object::GetType", 0, 0, 0, {""}},
+    {"UnityEngine.Component::GetComponentInChildren", 0, 0, 0, {""}},
+    {"Gummi.Scene.UI.UIObject::get_ParentUISceneParts", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::get_position", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::set_position", 0, 0, 0, {""}},
+    {"Gummi.Scene.UI.UISceneParts::Gummi.Scene.UI.IUIObjectRegister.Register", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::get_localPosition", 0, 0, 0, {""}},
+    {"UnityEngine.Transform::set_localPosition", 0, 0, 0, {""}},
+    {"UnityEngine.RectTransform::get_rect", 0, 0, 0, {""}},
+    {"UnityEngine.GameObject::SetActive", 0, 0, 0, {""}},
+    {"Game.Scene.Config.ConfigMusicStageEditPartsMain::OnInitializeSetting", 0, 0, 0, {""}},
+    {"Game.Localization.FontResourceManager::get_Instance", 0, 0, 0, {""}},
+    {"Gummi.Localization.LanguageController::SwitchLanguage", 0, 0, 0, {""}},
+    {"Game.Backup.Backup::get_ConfigInfo", 0, 0, 0, {""}},
+    {"Game.Backup.Backup::ReserveSave", 0, 0, 0, {""}},
+    {"Gummi.Scene.UI.UIObject::EndAction", 0, 0, 0, {""}},
+};
+static GameCode code_at[SITES];
+#define CODE(site) ((void *)(module+code_at[site].offset))
 
 /* A guest System.String (length at +0x10, UTF-16 from +0x14) as ASCII, others as '?'. */
 static void guest_string(const void *s, char *out, size_t size) {
@@ -103,36 +227,36 @@ static int row_of(const unsigned char *item) {
 
 /* Guest calls (sysv, MethodInfo last: NULL as the game passes it). */
 static void refresh_view(unsigned char *item) {
-    ((void (ABI *)(void *, void *))GUEST(0x293fd50))(item,NULL); /* UIListItem::RefreshView */
+    ((void (ABI *)(void *, void *))CODE(C_REFRESH_VIEW))(item,NULL); /* UIListItem::RefreshView */
 }
 static void play_se(const void *label) { /* SoundManager::PlaySE(label, delay 0, loop false) */
     if (label && load32((const char *)label+0x10)>0)
-        ((void (ABI *)(const void *, float, int, void *))GUEST(0xa96ec0))(label,0.0f,0,NULL);
+        ((void (ABI *)(const void *, float, int, void *))CODE(C_PLAY_SE))(label,0.0f,0,NULL);
 }
 /* LanguageController.Instance.LanguageChanged(current, current) with `forcing` set: the texts in
  * the rows translate their terms again (on_language_changed), so the labels follow the mode, and
  * the rows refresh. */
 static void retranslate(void) {
-    unsigned char *controller=((unsigned char *(ABI *)(void *))GUEST(0x2b0c270))(NULL);
+    unsigned char *controller=((unsigned char *(ABI *)(void *))CODE(C_LANGUAGE_CONTROLLER))(NULL);
     if (!controller) return;
     void *handler=(void *)load(controller+0x10);
     const int32_t language=load32(controller+0x18);
     forcing=1;
-    if (handler) ((void (ABI *)(void *, int32_t, int32_t, void *))GUEST(0x2b0cd80))(handler,language,language,NULL);
+    if (handler) ((void (ABI *)(void *, int32_t, int32_t, void *))CODE(C_LANGUAGE_CHANGED))(handler,language,language,NULL);
     forcing=0;
 }
 static unsigned char *transform(void *component) { /* Component::get_transform */
-    return ((unsigned char *(ABI *)(void *, void *))GUEST(0x1e27890))(component,NULL);
+    return ((unsigned char *(ABI *)(void *, void *))CODE(C_GET_TRANSFORM))(component,NULL);
 }
-static unsigned char *parent(void *t) { return ((unsigned char *(ABI *)(void *, void *))GUEST(0x1e36370))(t,NULL); }
-static int32_t child_count(void *t) { return ((int32_t (ABI *)(void *, void *))GUEST(0x1e3aad0))(t,NULL); }
-static unsigned char *child(void *t, int32_t i) { return ((unsigned char *(ABI *)(void *, int32_t, void *))GUEST(0x1e3b340))(t,i,NULL); }
-static void *object_name(void *object) { return ((void *(ABI *)(void *, void *))GUEST(0x1e2da50))(object,NULL); } /* Object::get_name */
+static unsigned char *parent(void *t) { return ((unsigned char *(ABI *)(void *, void *))CODE(C_GET_PARENT))(t,NULL); }
+static int32_t child_count(void *t) { return ((int32_t (ABI *)(void *, void *))CODE(C_CHILD_COUNT))(t,NULL); }
+static unsigned char *child(void *t, int32_t i) { return ((unsigned char *(ABI *)(void *, int32_t, void *))CODE(C_GET_CHILD))(t,i,NULL); }
+static void *object_name(void *object) { return ((void *(ABI *)(void *, void *))CODE(C_GET_NAME))(object,NULL); } /* Object::get_name */
 /* The component of class `type` (a name) on the game object of `component`, or NULL. */
 static unsigned char *component_named(void *component, const char *type) {
-    void *go=((void *(ABI *)(void *, void *))GUEST(0x1e278e0))(component,NULL); /* Component::get_gameObject */
+    void *go=((void *(ABI *)(void *, void *))CODE(C_GET_GAME_OBJECT))(component,NULL); /* Component::get_gameObject */
     void *name=guest_text(object_name(component),type);
-    return go && name ? ((unsigned char *(ABI *)(void *, void *, void *))GUEST(0x1e283e0))(go,name,NULL) : NULL; /* GetComponent(string) */
+    return go && name ? ((unsigned char *(ABI *)(void *, void *, void *))CODE(C_GET_COMPONENT))(go,name,NULL) : NULL; /* GetComponent(string) */
 }
 /* Two Unity objects with the same native object (m_CachedPtr). */
 static int same(const unsigned char *a, const unsigned char *b) { return a && b && load(a+0x10) && load(a+0x10)==load(b+0x10); }
@@ -283,22 +407,22 @@ static void show_monitor(unsigned char *root) {
     unsigned char *image=image_showing(root,"ConfigTop_Button_Icon_07",6);
     void *sprite=image ? (void *)load(image+0xd0) : NULL;
     if (!sprite) { printf("Display page: no Logo Usage icon in the copy; it keeps that icon\n"); return; }
-    const int packed=((int (ABI *)(void *, void *))GUEST(0x1e3d4a0))(sprite,NULL)&0xff;     /* Sprite::get_packed */
-    const int tight=packed && !((int (ABI *)(void *, void *))GUEST(0x1e3d500))(sprite,NULL); /* packingMode Tight */
-    void *texture=((void *(ABI *)(void *, void *))GUEST(0x1e3d210))(sprite,NULL);             /* Sprite::get_texture */
+    const int packed=((int (ABI *)(void *, void *))CODE(C_SPRITE_PACKED))(sprite,NULL)&0xff;     /* Sprite::get_packed */
+    const int tight=packed && !((int (ABI *)(void *, void *))CODE(C_SPRITE_PACKING_MODE))(sprite,NULL); /* packingMode Tight */
+    void *texture=((void *(ABI *)(void *, void *))CODE(C_SPRITE_TEXTURE))(sprite,NULL);             /* Sprite::get_texture */
     if (tight || !texture) { printf("Display page: Logo Usage's icon is not a rectangle in its atlas; the copy keeps it\n"); return; }
     /* textureRect: the drawn part in the atlas; it sits at textureRectOffset in the sprite's rect. */
-    const Rect drawn=((Rect (ABI *)(void *, void *))GUEST(0x1e3d5a0))(sprite,NULL), whole=((Rect (ABI *)(void *, void *))GUEST(0x1e3d030))(sprite,NULL);
-    const Vec2 offset=((Vec2 (ABI *)(void *, void *))GUEST(0x1e3d6c0))(sprite,NULL), pivot=((Vec2 (ABI *)(void *, void *))GUEST(0x1e3d3b0))(sprite,NULL);
-    const float units=((float (ABI *)(void *, void *))GUEST(0x1e3d2c0))(sprite,NULL);
+    const Rect drawn=((Rect (ABI *)(void *, void *))CODE(C_SPRITE_TEXTURE_RECT))(sprite,NULL), whole=((Rect (ABI *)(void *, void *))CODE(C_SPRITE_RECT))(sprite,NULL);
+    const Vec2 offset=((Vec2 (ABI *)(void *, void *))CODE(C_SPRITE_RECT_OFFSET))(sprite,NULL), pivot=((Vec2 (ABI *)(void *, void *))CODE(C_SPRITE_PIVOT))(sprite,NULL);
+    const float units=((float (ABI *)(void *, void *))CODE(C_SPRITE_PIXELS_PER_UNIT))(sprite,NULL);
     if (whole.width<=0 || whole.height<=0) return;
     const Rect rect={drawn.x+ICON_MOVE_X-offset.x,drawn.y+ICON_MOVE_Y-offset.y,whole.width,whole.height};
     const Vec2 center={pivot.x/whole.width,pivot.y/whole.height};
     const Vec4 border={0,0,0,0};
-    void *monitor=((void *(ABI *)(void *, Rect, Vec2, float, uint32_t, int32_t, Vec4, int, void *))GUEST(0x1e3cdb0))
+    void *monitor=((void *(ABI *)(void *, Rect, Vec2, float, uint32_t, int32_t, Vec4, int, void *))CODE(C_CREATE_SPRITE))
         (texture,rect,center,units,0,0,border,0,NULL);
     if (!monitor) { printf("Display page: cannot make the monitor icon; the copy keeps Logo Usage's\n"); return; }
-    ((void (ABI *)(void *, void *, void *))GUEST(0x2cb0490))(image,monitor,NULL); /* Image::set_sprite */
+    ((void (ABI *)(void *, void *, void *))CODE(C_SET_SPRITE))(image,monitor,NULL); /* Image::set_sprite */
 }
 
 /* ConfigTopLayerMain::SwitchIn(this), as the Options menu shows: give its scene the Display Settings
@@ -320,28 +444,28 @@ static ABI int top_switch_in(HookRegs *r) {
         if (!strcmp(name,button_name)) return 0;
     }
     button=NULL; button_root=NULL;
-    unsigned char *root=((unsigned char *(ABI *)(void *, void *, int))GUEST(0x1e2ea40))(logo_root,logo_root,0); /* Internal_CloneSingleWithParent */
+    unsigned char *root=((unsigned char *(ABI *)(void *, void *, int))CODE(C_CLONE))(logo_root,logo_root,0); /* Internal_CloneSingleWithParent */
     if (!root) return 0;
     void *name=guest_text(object_name(logo_root),button_name);
-    if (name) ((void (ABI *)(void *, void *, void *))GUEST(0x1e2db30))(root,name,NULL); /* Object::set_name */
+    if (name) ((void (ABI *)(void *, void *, void *))CODE(C_SET_NAME))(root,name,NULL); /* Object::set_name */
     /* The button fades in through a CanvasGroup on its root, copied at alpha 0: the original's now
      * fades the copy too. */
     void *group=component_named(root,"CanvasGroup");
-    if (group) ((void (ABI *)(void *, float, void *))GUEST(0x45329b0))(group,1.0f,NULL); /* CanvasGroup::set_alpha */
-    void *type=((void *(ABI *)(void *, void *))GUEST(0x36d5fd0))(logo,NULL); /* Object::GetType */
-    unsigned char *copy=((unsigned char *(ABI *)(void *, void *, int, void *))GUEST(0x1e27a90))(root,type,1,NULL); /* GetComponentInChildren */
-    void *scene_parts=((void *(ABI *)(void *, void *))GUEST(0x2941490))(logo,NULL); /* UIObject::get_ParentUISceneParts */
+    if (group) ((void (ABI *)(void *, float, void *))CODE(C_SET_ALPHA))(group,1.0f,NULL); /* CanvasGroup::set_alpha */
+    void *type=((void *(ABI *)(void *, void *))CODE(C_GET_TYPE))(logo,NULL); /* Object::GetType */
+    unsigned char *copy=((unsigned char *(ABI *)(void *, void *, int, void *))CODE(C_COMPONENT_IN_CHILDREN))(root,type,1,NULL); /* GetComponentInChildren */
+    void *scene_parts=((void *(ABI *)(void *, void *))CODE(C_PARENT_SCENE_PARTS))(logo,NULL); /* UIObject::get_ParentUISceneParts */
     if (!copy || !scene_parts) return 0;
     /* Below Streaming Rules, in Logo Usage's row. The buttons slide in from the left inside their
      * roots, which stay put, and the copy keeps the slide's first frame: its button goes where the
      * others come to rest, on their roots (world positions). */
-    Vec3 (ABI *get_position)(void *, void *)=(Vec3 (ABI *)(void *, void *))GUEST(0x1e364f0); /* Transform::position */
+    Vec3 (ABI *get_position)(void *, void *)=(Vec3 (ABI *)(void *, void *))CODE(C_GET_POSITION); /* Transform::position */
     Vec3 at=get_position(root,NULL);
     const Vec3 column=get_position(streaming_root,NULL), row=get_position(logo_root,NULL), now=get_position(transform(copy),NULL);
     at.x+=column.x-now.x; at.y+=row.y-now.y;
-    ((void (ABI *)(void *, Vec3, void *))GUEST(0x1e365f0))(root,at,NULL);
+    ((void (ABI *)(void *, Vec3, void *))CODE(C_SET_POSITION))(root,at,NULL);
     if (monitor_icon) show_monitor(root);
-    ((void (ABI *)(void *, void *, void *))GUEST(0x212b300))(scene_parts,copy,NULL); /* UISceneParts IUIObjectRegister.Register */
+    ((void (ABI *)(void *, void *, void *))CODE(C_REGISTER))(scene_parts,copy,NULL); /* UISceneParts IUIObjectRegister.Register */
     if (!link_button(parts,copy)) printf("Display page: the Display Settings button has no cursor moves\n");
     button=copy; button_root=root; logo_button=logo;
     printf("Display page: Display Settings button added below Streaming Rules\n");
@@ -401,8 +525,8 @@ static void mark_row(unsigned char *view, int hide) {
     if (slot<0 || (hide && marked[slot].view==view && marked[slot].moved)) return; /* nothing to undo, or done */
     unsigned char *category=child_named((unsigned char *)load(view+0x18),"CategoryName_MsMark");
     if (!category) return;
-    Vec3 (ABI *get_local)(void *, void *)=(Vec3 (ABI *)(void *, void *))GUEST(0x1e344f0);        /* Transform::localPosition */
-    void (ABI *set_local)(void *, Vec3, void *)=(void (ABI *)(void *, Vec3, void *))GUEST(0x1e346b0);
+    Vec3 (ABI *get_local)(void *, void *)=(Vec3 (ABI *)(void *, void *))CODE(C_GET_LOCAL_POSITION);        /* Transform::localPosition */
+    void (ABI *set_local)(void *, Vec3, void *)=(void (ABI *)(void *, Vec3, void *))CODE(C_SET_LOCAL_POSITION);
     const int first=marked[slot].view!=view, marks=!hide || first; /* the marks show or hide now */
     for (int32_t i=0;i<child_count(category);++i) {
         unsigned char *c=child(category,i);
@@ -410,7 +534,7 @@ static void mark_row(unsigned char *view, int hide) {
         if (!strcmp(n,"Text_Category")) {
             /* VSync's view may not be set up yet as the page opens: the label moves on a later call */
             unsigned char *plain=hide ? row_label(first_view(row_item[ROW_VSYNC]),"CategoryName") : NULL;
-            Rect (ABI *rect)(void *, void *)=(Rect (ABI *)(void *, void *))GUEST(0x1e33a10); /* RectTransform::rect (from the pivot) */
+            Rect (ABI *rect)(void *, void *)=(Rect (ABI *)(void *, void *))CODE(C_RECT); /* RectTransform::rect (from the pivot) */
             Vec3 at=get_local(c,NULL);
             if (first) marked[slot].x=at.x;
             if (!hide) at.x=marked[slot].x;
@@ -418,8 +542,8 @@ static void mark_row(unsigned char *view, int hide) {
             set_local(c,at,NULL);
             marked[slot].moved=plain!=NULL;
         } else if (marks && strcmp(n,"Active")) { /* the selection highlight stays */
-            void *go=((void *(ABI *)(void *, void *))GUEST(0x1e278e0))(c,NULL); /* Component::get_gameObject */
-            if (go) ((void (ABI *)(void *, int, void *))GUEST(0x1e29580))(go,!hide,NULL); /* GameObject::SetActive */
+            void *go=((void *(ABI *)(void *, void *))CODE(C_GET_GAME_OBJECT))(c,NULL); /* Component::get_gameObject */
+            if (go) ((void (ABI *)(void *, int, void *))CODE(C_SET_ACTIVE))(go,!hide,NULL); /* GameObject::SetActive */
         }
     }
     marked[slot].view=hide ? view : NULL;
@@ -447,7 +571,7 @@ static ABI int initialize_list(HookRegs *r) {
     }
     page_display=display_mode;
     resorting=1;
-    ((void (ABI *)(void *, void *))GUEST(0x45f4cc0))(self,NULL); /* OnInitializeSetting */
+    ((void (ABI *)(void *, void *))CODE(C_ON_INITIALIZE_SETTING))(self,NULL); /* OnInitializeSetting */
     resorting=0;
     put(self+0xa8,0); /* _selectedItem */
     retranslate();
@@ -550,7 +674,7 @@ static ABI int help_entry(HookRegs *r) {
     guest_string((const void *)load(data+0x10),term,sizeof(term)); /* _term */
     if (strcmp(term,"Common/HelpBar/Default")) return 0;
     void *icon=(void *)load(content+0x20); /* _imageButtonIcon */
-    if (icon) ((void (ABI *)(void *, void *, void *))GUEST(0x2cb0490))(icon,NULL,NULL); /* Image::set_sprite */
+    if (icon) ((void (ABI *)(void *, void *, void *))CODE(C_SET_SPRITE))(icon,NULL,NULL); /* Image::set_sprite */
     return 1;
 }
 
@@ -612,13 +736,13 @@ static ABI int set_text_by_term(HookRegs *r) { label_text=(void *)r->rdi; return
 /* LocalizedTextBase<T>::onLanguageChanged(this, from, to): skips a text whose language is `to`, so
  * retranslate() translates the rows' texts itself (SetTextByTermInfo of the same class: its code
  * only reads the class from the MethodInfo). */
-static int on_language_changed(HookRegs *r, uint64_t set_text) {
+static int on_language_changed(HookRegs *r, int set_text) {
     if (!forcing || (row_holding((void *)r->rdi)<0 && !in_button((void *)r->rdi))) return 0;
-    ((void (ABI *)(void *, void *))GUEST(set_text))((void *)r->rdi,(void *)r->rcx);
+    ((void (ABI *)(void *, void *))CODE(set_text))((void *)r->rdi,(void *)r->rcx);
     return 1;
 }
-static ABI int on_language_changed_a(HookRegs *r) { return on_language_changed(r,0x392f3a0); }
-static ABI int on_language_changed_b(HookRegs *r) { return on_language_changed(r,0x3930620); }
+static ABI int on_language_changed_a(HookRegs *r) { return on_language_changed(r,H_SET_TEXT_A); }
+static ABI int on_language_changed_b(HookRegs *r) { return on_language_changed(r,H_SET_TEXT_B); }
 
 /* I2 LocalizationManager::TryGetTranslation(term, out translation, ...): the Display Settings texts. */
 static ABI int translate(HookRegs *r) {
@@ -670,64 +794,63 @@ static ABI int language_input(HookRegs *r) {
     const unsigned char *selected=list ? (const unsigned char *)load(list+0xa8) : NULL; /* SelectedItemInfo */
     unsigned char *item=selected ? (unsigned char *)load(selected+0x20) : NULL;
     if (!item || strcmp(class_name(item),"ConfigListItemButton")) return 0;
-    unsigned char *controller=((unsigned char *(ABI *)(void *))GUEST(0x2b0c270))(NULL); /* LanguageController.Instance */
-    void *fonts=((void *(ABI *)(void *))GUEST(0x459b960))(NULL); /* FontResourceManager.Instance */
+    unsigned char *controller=((unsigned char *(ABI *)(void *))CODE(C_LANGUAGE_CONTROLLER))(NULL); /* LanguageController.Instance */
+    void *fonts=((void *(ABI *)(void *))CODE(C_FONT_RESOURCES))(NULL); /* FontResourceManager.Instance */
     if (!controller || !fonts) return 0;
     const int count=sizeof(languages)/sizeof(*languages);
     int at=1; /* English */
     for (int i=0;i<count;++i) if (languages[i]==load32(controller+0x18)) at=i; /* CurrentLanguage */
     const int32_t language=languages[(at+(action==1 ? 1 : count-1))%count];
-    ((void (ABI *)(void *, int32_t, void *, void *))GUEST(0x2b0c2f0))(controller,language,fonts,NULL);
-    unsigned char *config=((unsigned char *(ABI *)(void *))GUEST(0x45ceaa0))(NULL); /* Backup::get_ConfigInfo */
+    ((void (ABI *)(void *, int32_t, void *, void *))CODE(C_SWITCH_LANGUAGE))(controller,language,fonts,NULL);
+    unsigned char *config=((unsigned char *(ABI *)(void *))CODE(C_CONFIG_INFO))(NULL); /* Backup::get_ConfigInfo */
     if (config) put32(config+0x1c,language);
-    ((void (ABI *)(void *))GUEST(0x45d8610))(NULL); /* Backup::ReserveSave */
+    ((void (ABI *)(void *))CODE(C_RESERVE_SAVE))(NULL); /* Backup::ReserveSave */
     play_se((const void *)load(item+0x58));
-    ((void (ABI *)(void *, int, void *))GUEST(0x2941ba0))(reaction,0,NULL); /* UIObject::EndAction */
+    ((void (ABI *)(void *, int, void *))CODE(C_END_ACTION))(reaction,0,NULL); /* UIObject::EndAction */
     r->rax=0;
     return 1;
 }
 /* Code that would turn the three back into English: the region checks return the language as asked,
  * and ConfigInfo::set_DisplayLanguage and the save's reader keep it as given (both check the World
  * region inline). A new save's default, from the system language, stays one of the six. */
-static const struct { uint64_t offset; unsigned char original[10], length, patch[4]; } language_patches[]={
-    {0x45a0b40,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* RegionLanguage::GetLanguageAllowedInCurrentRegion: mov eax,edi; ret */
-    {0x45a0b80,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* ...InWorldRegion */
-    {0x45a0c00,{0x83,0xff,0x0f,0x7e,0x1a,0x83,0xff,0x22,0x77,0x2b},3,{0x89,0xf8,0xc3}},      /* ...InJapanRegion */
-    {0x45e5cf0,{0x83,0xfe,0x0f,0x7e,0x1d,0x83,0xfe,0x22,0x77,0x2e},4,{0x89,0x77,0x1c,0xc3}}, /* ConfigInfo::set_DisplayLanguage: mov [rdi+0x1c],esi; ret */
-    {0x19bb421,{0x83,0xf8,0x0f,0x7e,0x1b,0x83,0xf8,0x22,0x77,0x2c},4,{0x89,0xc1,0xeb,0x37}}, /* ConfigInfoFormatter::Deserialize, DisplayLanguage: mov ecx,eax; jmp to its store */
+static const struct { int site; unsigned char length, patch[4]; } language_patches[]={
+    {P_REGION_CURRENT,3,{0x89,0xf8,0xc3}},          /* RegionLanguage::GetLanguageAllowedInCurrentRegion: mov eax,edi; ret */
+    {P_REGION_WORLD,3,{0x89,0xf8,0xc3}},            /* ...InWorldRegion */
+    {P_REGION_JAPAN,3,{0x89,0xf8,0xc3}},            /* ...InJapanRegion */
+    {P_SET_DISPLAY_LANGUAGE,4,{0x89,0x77,0x1c,0xc3}}, /* ConfigInfo::set_DisplayLanguage: mov [rdi+0x1c],esi; ret */
+    {P_DESERIALIZE,4,{0x89,0xc1,0xeb,0x37}},        /* ConfigInfoFormatter::Deserialize, DisplayLanguage: mov ecx,eax; jmp to its store */
 };
 /* The picker (WindowLanguageSettingBodyPartsMain's InitializeSetting, MoveNext) selects the button of
- * the current language, read here: mov r12d,[rax+0x18]; jmp the button loop. A language it has no
- * button for would leave it without a cursor, so a stub reads those three as English. */
-#define PICKER_SITE 0x157e88f
-static const unsigned char picker_site[]={0x44,0x8b,0x60,0x18,0xeb,0x41};
+ * the current language, read at P_PICKER: mov r12d,[rax+0x18]; jmp the button loop. A language it
+ * has no button for would leave it without a cursor, so a stub reads those three as English. */
+#define PICKER_SITE_LENGTH 6
 
 static const Hook hooks[]={
-    {0xeef450, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, switch_layer, 0},    /* ConfigMain::switchLayer */
-    {0x2cfa280,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, translate, 0},       /* LocalizationManager::TryGetTranslation */
-    {0x392f3a0,7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, set_text_by_term, 0},     /* LocalizedTextBase<T>::SetTextByTermInfo */
-    {0x3930620,7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, set_text_by_term, 0},     /* (its other instance) */
-    {0x392f420,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, on_language_changed_a, 0}, /* LocalizedTextBase<T>::onLanguageChanged */
-    {0x39306a0,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, on_language_changed_b, 0}, /* (its other instance) */
-    {0xed7c20, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, button_value, 0},         /* ConfigButtonBehaviour::refreshValueText */
-    {0xed7b80, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, button_set_index, 0},     /* ConfigButtonBehaviour::SetIndex */
-    {0xed86a0, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, slider_value, 0},         /* ConfigSliderBehaviour::refreshValueText */
-    {0xed85e0, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, slider_set_index, 0},     /* ConfigSliderBehaviour::SetIndex */
-    {0x45ee420,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, initialize_list, 0}, /* ConfigMusicStageEditPartsMain::InitializeList */
-    {0xed50c0, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, initialize_setting, 0}, /* ConfigListItemBase::InitializeSetting */
-    {0x45f5840,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, filter_item, 0},     /* ConfigMusicStageEditPartsMain::filterItem */
-    {0x45f5b50,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, compare_item, 0},    /* ConfigMusicStageEditPartsMain::compareItem */
-    {0xed6210, 6, {0x55,0x48,0x89,0xe5,0x53,0x50}, submit, 0},                    /* ConfigListItemButton::OnSubmit */
-    {0xed77b0, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, slider_horizontal, 0},    /* ConfigListItemSlider::OnHorizontalInput */
-    {0xed64d0, 7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, selector_horizontal, 0},  /* ConfigListItemSelector::OnHorizontalInput */
-    {0x45f6350,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, check_default, 0},   /* ConfigMusicStageEditPartsMain::openCheckDefaultWindow */
-    {0x45fb4e0,7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, top_switch_in, 0},        /* ConfigTopLayerMain::SwitchIn */
-    {0x45fcae0,7, {0x55,0x48,0x89,0xe5,0x41,0x56,0x53}, top_executed, 0},         /* ConfigTopPartsMain::OnExecutedScenePartsMain */
-    {0x45fcc80,8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, top_select, 0},      /* ConfigTopPartsMain::sendSelectReaction */
-    {0xea4090, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, object_info, 0},     /* ScenePartsMain.UIObjectGroup::GetUIObjectInfo */
-    {0xed8010, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, row_view, 0},        /* ConfigListItemView::OnSetView */
-    {0xfffa30, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, help_entry, 6},      /* HelpBarContent::RefleshDisplay (3 Colors) */
-    {0xee4610, 8, {0x55,0x48,0x89,0xe5,0x41,0x57,0x41,0x56}, language_input, 0},  /* ConfigLanguageMenuEditPartsMain::OnExecutedScenePartsMain */
+    {H_SWITCH_LAYER, switch_layer, 0},              /* ConfigMain::switchLayer */
+    {H_TRANSLATE, translate, 0},                    /* LocalizationManager::TryGetTranslation */
+    {H_SET_TEXT_A, set_text_by_term, 0},            /* LocalizedTextBase<T>::SetTextByTermInfo */
+    {H_SET_TEXT_B, set_text_by_term, 0},            /* (its other instance) */
+    {H_LANGUAGE_CHANGED_A, on_language_changed_a, 0}, /* LocalizedTextBase<T>::onLanguageChanged */
+    {H_LANGUAGE_CHANGED_B, on_language_changed_b, 0}, /* (its other instance) */
+    {H_BUTTON_VALUE, button_value, 0},              /* ConfigButtonBehaviour::refreshValueText */
+    {H_BUTTON_SET_INDEX, button_set_index, 0},      /* ConfigButtonBehaviour::SetIndex */
+    {H_SLIDER_VALUE, slider_value, 0},              /* ConfigSliderBehaviour::refreshValueText */
+    {H_SLIDER_SET_INDEX, slider_set_index, 0},      /* ConfigSliderBehaviour::SetIndex */
+    {H_INITIALIZE_LIST, initialize_list, 0},        /* ConfigMusicStageEditPartsMain::InitializeList */
+    {H_INITIALIZE_SETTING, initialize_setting, 0},  /* ConfigListItemBase::InitializeSetting */
+    {H_FILTER_ITEM, filter_item, 0},                /* ConfigMusicStageEditPartsMain::filterItem */
+    {H_COMPARE_ITEM, compare_item, 0},              /* ConfigMusicStageEditPartsMain::compareItem */
+    {H_SUBMIT, submit, 0},                          /* ConfigListItemButton::OnSubmit */
+    {H_SLIDER_HORIZONTAL, slider_horizontal, 0},    /* ConfigListItemSlider::OnHorizontalInput */
+    {H_SELECTOR_HORIZONTAL, selector_horizontal, 0}, /* ConfigListItemSelector::OnHorizontalInput */
+    {H_CHECK_DEFAULT, check_default, 0},            /* ConfigMusicStageEditPartsMain::openCheckDefaultWindow */
+    {H_TOP_SWITCH_IN, top_switch_in, 0},            /* ConfigTopLayerMain::SwitchIn */
+    {H_TOP_EXECUTED, top_executed, 0},              /* ConfigTopPartsMain::OnExecutedScenePartsMain */
+    {H_TOP_SELECT, top_select, 0},                  /* ConfigTopPartsMain::sendSelectReaction */
+    {H_OBJECT_INFO, object_info, 0},                /* ScenePartsMain.UIObjectGroup::GetUIObjectInfo */
+    {H_ROW_VIEW, row_view, 0},                      /* ConfigListItemView::OnSetView */
+    {H_HELP_ENTRY, help_entry, 6},                  /* HelpBarContent::RefleshDisplay (3 Colors) */
+    {H_LANGUAGE_INPUT, language_input, 0},          /* ConfigLanguageMenuEditPartsMain::OnExecutedScenePartsMain */
 };
 
 static unsigned char *emit(unsigned char *p, const void *bytes, size_t size) { memcpy(p,bytes,size); return p+size; }
@@ -743,7 +866,7 @@ static unsigned char *xmm_slot(unsigned char *p, int store, int reg, int32_t dis
     return emit(p,&disp,4);
 }
 /* Most bytes emit_hook_stub writes for `h`. */
-static size_t stub_size(const Hook *h) { return 144+16*(size_t)h->floats; }
+static size_t stub_size(const Hook *h) { return 144+16*(size_t)h->floats; } /* 16 moved bytes at most */
 /* The stub for `h` at `p`: save the argument registers in a HookRegs on the stack, and after it the
  * xmm argument registers the function takes (the call stays 16-byte aligned: rsp is 8 mod 16 at the
  * function entry), call h->fn, then return its result or restore them, run the moved prologue and
@@ -762,15 +885,15 @@ static unsigned char *emit_hook_stub(unsigned char *p, const Hook *h, unsigned c
     for (int i=0;i<6;++i) p=rsp_slot(p,0,args[i],(uint8_t)(8*i));
     for (int i=0;i<h->floats;++i) p=xmm_slot(p,0,i,72+16*i);
     p=emit(p,(const unsigned char[]){0x48,0x81,0xc4},3); p=emit(p,&frame,4); /* add rsp,frame */
-    p=emit(p,h->prologue,h->length);
-    const uint64_t back=(uint64_t)(uintptr_t)(function+h->length);
+    p=emit(p,function,code_at[h->site].moved);                                     /* the moved bytes */
+    const uint64_t back=(uint64_t)(uintptr_t)(function+code_at[h->site].moved);
     p=emit(p,(const unsigned char[]){0xff,0x25,0,0,0,0},6); p=emit(p,&back,8); /* jmp [rip]: back */
     jnz[1]=(unsigned char)(p-(jnz+2));
     p=rsp_slot(p,0,0,48); p=rsp_slot(p,0,2,56);                               /* rax, rdx = results */
     p=emit(p,(const unsigned char[]){0x48,0x81,0xc4},3); p=emit(p,&frame,4); /* add rsp,frame */
     return emit(p,(const unsigned char[]){0xc3},1);                           /* ret */
 }
-/* The picker's stub at `p`, jumped to from PICKER_SITE: its load, the three as English, then back to
+/* The picker's stub at `p`, jumped to from P_PICKER: its load, the three as English, then back to
  * the button loop (the site's jmp). */
 #define PICKER_STUB_SIZE 42
 static unsigned char *emit_picker_stub(unsigned char *p) {
@@ -781,56 +904,52 @@ static unsigned char *emit_picker_stub(unsigned char *p) {
         0x41,0x83,0xfc,0x29, 0x75,0x06,     /* cmp r12d,41 (ChineseTraditional); jne back */
         0x41,0xbc,0x0a,0x00,0x00,0x00,      /* english: mov r12d,10 */
         0xff,0x25,0,0,0,0};                 /* back: jmp [rip] */
-    const uint64_t loop=(uint64_t)(uintptr_t)(module+PICKER_SITE+sizeof(picker_site)+0x41);
+    const unsigned char *site=CODE(P_PICKER);
+    const uint64_t loop=(uint64_t)(uintptr_t)(site+PICKER_SITE_LENGTH+(int8_t)site[5]);
     p=emit(p,code,sizeof code);
     return emit(p,&loop,8);
+}
+
+/* Display Settings stays on F10 alone: logged, and told on screen as the game starts. */
+static int not_installed(const char *why) {
+    if (why) printf("Display page: %s\n",why);
+    printf("Display page: the Options menu stays as it is in game %s; Display Settings is on F10\n",runtime_game_version());
+    char notice[160];
+    snprintf(notice,sizeof(notice),"Display Settings is not in Options for game %s yet: press F10 for it",runtime_game_version());
+    theatrhythm_gpu_notice(notice,20000);
+    return -1;
 }
 
 int runtime_display_page_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int monitor) {
     module=image+module_base;
     monitor_icon=monitor;
+    if (runtime_game_code_find(sites,SITES,code_at,"Display page")) return not_installed(NULL);
     size_t need=0;
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
-        if (memcmp(module+hooks[i].offset,hooks[i].prologue,hooks[i].length)) {
-            printf("Display page: game code differs at 0x%llx; the Options menu stays as it is\n",(unsigned long long)hooks[i].offset);
-            return -1;
-        }
+        const unsigned moved=code_at[hooks[i].site].moved;
+        if (moved<5 || moved>16) return not_installed("a hook's moved bytes are not 5 to 16 (runner bug)");
         need+=stub_size(&hooks[i]);
-        const int64_t rel=(int64_t)(stubs+need-(module+hooks[i].offset+5)); /* the farthest its stub can be */
-        if (rel!=(int32_t)rel || need>size) {
-            printf("Display page: no room for the hook stubs; the Options menu stays as it is\n");
-            return -1;
-        }
-    }
-    for (size_t i=0;i<sizeof(language_patches)/sizeof(*language_patches);++i)
-        if (memcmp(module+language_patches[i].offset,language_patches[i].original,sizeof(language_patches[i].original))) {
-            printf("Display page: game code differs at 0x%llx; the Options menu stays as it is\n",(unsigned long long)language_patches[i].offset);
-            return -1;
-        }
-    if (memcmp(module+PICKER_SITE,picker_site,sizeof(picker_site))) {
-        printf("Display page: game code differs at 0x%llx; the Options menu stays as it is\n",(unsigned long long)PICKER_SITE);
-        return -1;
+        const int64_t rel=(int64_t)(stubs+need-(module+code_at[hooks[i].site].offset+5)); /* the farthest its stub can be */
+        if (rel!=(int32_t)rel || need>size) return not_installed("no room for the hook stubs");
     }
     need+=PICKER_STUB_SIZE;
-    if (need>size) {
-        printf("Display page: no room for the hook stubs; the Options menu stays as it is\n");
-        return -1;
-    }
+    if (need>size) return not_installed("no room for the hook stubs");
     for (size_t i=0;i<sizeof(language_patches)/sizeof(*language_patches);++i)
-        memcpy(module+language_patches[i].offset,language_patches[i].patch,language_patches[i].length);
+        memcpy(CODE(language_patches[i].site),language_patches[i].patch,language_patches[i].length);
     unsigned char *p=stubs;
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
-        unsigned char *function=module+hooks[i].offset;
+        unsigned char *function=CODE(hooks[i].site);
         unsigned char *stub=p;
         p=emit_hook_stub(p,&hooks[i],function);
         const int32_t rel32=(int32_t)(stub-(function+5));
         function[0]=0xe9; memcpy(function+1,&rel32,4);
-        memset(function+5,0x90,hooks[i].length-5u); /* never run: the stub jumps past them */
+        memset(function+5,0x90,code_at[hooks[i].site].moved-5u); /* never run: the stub jumps past them */
     }
-    unsigned char *site=module+PICKER_SITE;
+    unsigned char *site=CODE(P_PICKER);
     const int32_t rel32=(int32_t)(p-(site+5));
     p=emit_picker_stub(p);
     site[0]=0xe9; memcpy(site+1,&rel32,4); site[5]=0x90;
-    printf("Display page: Options > Display Settings and all display languages (%zu hooks)\n",sizeof(hooks)/sizeof(*hooks));
+    printf("Display page: Options > Display Settings and all display languages (%zu hooks, game %s)\n",
+           sizeof(hooks)/sizeof(*hooks),runtime_game_version());
     return 0;
 }

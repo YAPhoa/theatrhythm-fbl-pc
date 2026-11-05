@@ -48,6 +48,28 @@ void runtime_memory_invalidate(uintptr_t address, uint64_t size);
 enum { BUTTON_ICONS_PS4, BUTTON_ICONS_XBOX, BUTTON_ICONS_KEYBOARD, BUTTON_ICONS_SETS };
 void runtime_button_icons_configure(const char *folder, const char *mode);
 void runtime_button_icons_input(int set);
+/* The game code the runner patches, found by name and bytes in any game version
+ * (runtime_game_code.c, tools/game_code.py). A site: `method` "Namespace.Type/Nested::Method" in
+ * the IL2CPP metadata, and a pattern at its entry or (`inside`) once in its first 64 KiB; or method
+ * NULL, a pattern in the whole code that matches `instances` times (the site: match `instance` by
+ * address, entries 16-byte aligned unless `inside`). Patterns, the first that matches is used: hex
+ * bytes, ?? any byte, | the end of the (fixed) bytes a hook moves. */
+typedef struct {
+    const char *method;
+    unsigned char inside, instances, instance;
+    const char *patterns[3];
+} GameSite;
+typedef struct { uint64_t offset; unsigned moved; int pattern; } GameCode; /* module offset; bytes before |; which pattern */
+/* Logs "Game: ..." (param.sfo TITLE_ID and APP_VER, and the module's size and SHA-256 from
+ * link.json beside the image), and keeps the version for runtime_game_version (bug reports). */
+void runtime_game_identify(const char *title_id, const char *app_version, const char *app0, const char *image_path);
+const char *runtime_game_version(void);
+/* Il2CppUserAssemblies as mapped and relocated (base, size, code segment size) and the dump folder
+ * (its global-metadata.dat): before runtime_game_code_find; close frees the metadata. */
+void runtime_game_code_open(unsigned char *module, uint64_t size, uint64_t code_size, const char *app0);
+void runtime_game_code_close(void);
+/* Every site of `sites` into `found`: 0, or -1 after logging "<who>: <site> not found in game ...". */
+int runtime_game_code_find(const GameSite *sites, size_t count, GameCode *found, const char *who);
 /* Display Settings in the game's Options menu, and all nine display languages on its Language page
  * (runtime_display_page.c): hooks the game's code in the
  * image (still writable), with stubs written to `stubs` (`size` bytes, within rel32 reach of it);
