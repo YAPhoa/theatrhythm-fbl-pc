@@ -25,9 +25,9 @@ static void *ABI inspector(void *arg) {
 static volatile int spin_ready;
 static GuestThread *volatile handled_on;
 static volatile uint64_t handled_sp;
-/* Guest code: a copy in executable memory outside any loaded module, as the game's image is (a
- * thread running host code is let finish before a raise reaches it). Each loop takes its stop and
- * ready flags through rdi. */
+/* Guest code: a copy in low executable memory outside any loaded module, as the game's image is
+ * (a thread running host code is let finish before a raise reaches it). Each loop takes its stop
+ * and ready flags through rdi. */
 typedef struct { volatile int stop, ready; } SpinFlags;
 typedef void *(ABI *GuestEntry)(void *);
 static GuestEntry guest_copy(const void *start, const void *end) {
@@ -36,7 +36,7 @@ static GuestEntry guest_copy(const void *start, const void *end) {
     void *p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
     assert(p);
 #else
-    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    void *p = mmap(NULL, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS | MAP_32BIT, -1, 0);
     assert(p != MAP_FAILED);
 #endif
     memcpy(p, start, size);
@@ -78,19 +78,30 @@ __asm__(".text\n.globl redzone_code\nredzone_code:\n"
 static void ABI on_exception(int32_t signum,GuestUcontext *u) {
     if (signum==30) { handled_sp=*(uint64_t *)((char *)u+0xf8); handled_on=runtime_thread_current(); }
 }
-#ifdef _WIN32
-/* Host code (this exe) between short guest calls; host_inside marks the host part. */
+/* Host code (this exe, with a system call) between short guest calls; host_inside marks the host
+ * part. */
 static volatile int host_inside, host_stop, host_ready, handled_inside_host;
 void guest_pause_code(void), guest_pause_end(void);
 __asm__(".text\n.globl guest_pause_code\nguest_pause_code:\n"
         " mov $200,%ecx\n1: pause\n dec %ecx\n jnz 1b\n xor %eax,%eax\n ret\n"
         ".globl guest_pause_end\nguest_pause_end:\n");
+static void quick_syscall(void) {
+#ifdef _WIN32
+    static HANDLE event;
+    if (!event) event = CreateEventA(NULL, TRUE, FALSE, NULL);
+    SetEvent(event);
+#else
+    syscall(SYS_getppid);
+#endif
+}
 static void *ABI host_worker(void *arg) {
     GuestEntry guest_pause = (GuestEntry)arg;
     host_ready = 1;
     while (!host_stop) {
         host_inside = 1;
-        for (volatile int i = 0; i < 2000; ++i) {}
+        for (volatile int i = 0; i < 1000; ++i) {}
+        quick_syscall(); /* returning from it, the thread is not blocked: still host code */
+        for (volatile int i = 0; i < 1000; ++i) {}
         host_inside = 0;
         guest_pause(NULL);
     }
@@ -100,7 +111,6 @@ static void ABI host_inside_check(int32_t signum,GuestUcontext *u) {
     (void)u;
     if (signum==30 && host_inside) handled_inside_host=1;
 }
-#endif
 /* A handler that uses the caller-saved registers, as compiled guest code may. */
 static void ABI clobbering_exception(int32_t signum,GuestUcontext *u) {
     __asm__ volatile("mov $-1,%%r8\n mov $-1,%%r9\n mov $-1,%%r10\n mov $-1,%%r11\n pcmpeqd %%xmm0,%%xmm0"
@@ -227,7 +237,6 @@ int main(void) {
     redzone.stop = 1;
     void *clobbered = (void *)1;
     assert(thread_join(t, &clobbered) == 0 && clobbered == NULL && raised_running >= running_before + 50);
-#ifdef _WIN32
     /* A thread that keeps entering host code gets the handler only back in guest code: in host
      * code it may hold a lock the handler takes (the event flags' one). */
     assert(remove_exception_handler(30) == 0 && install_exception_handler(30, host_inside_check) == 0);
@@ -242,7 +251,6 @@ int main(void) {
     }
     host_stop = 1;
     assert(thread_join(t, NULL) == 0 && !handled_inside_host && raised_running == worker_before + 200);
-#endif
 
     assert(thread_create(&t, NULL, cleaner, NULL, "cleaner") == 0 && thread_join(t, NULL) == 0);
     assert(!strcmp(cleanup_log, "bca"));
