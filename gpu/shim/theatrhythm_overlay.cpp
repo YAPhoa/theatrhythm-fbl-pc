@@ -98,6 +98,8 @@ std::chrono::steady_clock::time_point last_present{};
 // The Display Settings panel (F10, or the Options menu's Display Settings button). The row and
 // dirty flag are guarded by imgui_mutex; the values live in TheatrhythmSettings.
 std::atomic<bool> display_open{false};
+// F4's pause (src/runtime_pause.c): requested from one press to the next, paused while the game waits.
+std::atomic<bool> pause_available{false}, pause_requested{false}, paused{false};
 int display_row = 0;
 bool display_dirty = false;
 enum DisplayRow : int { RowMode, RowResolution, RowMonitor, RowVsync, RowFps, RowQueued, RowAnisotropy, RowRender, RowCount };
@@ -592,6 +594,33 @@ void LoadingScreen() {
     ImGui::End();
 }
 
+// F4's pause: the last frame dimmed, "Paused" in the middle.
+void PausedScreen() {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::GetBackgroundDrawList()->AddRectFilled(
+        viewport->Pos, ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
+        IM_COL32(0, 0, 0, 140));
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + viewport->WorkSize.x * 0.5f,
+                                   viewport->WorkPos.y + viewport->WorkSize.y * 0.5f),
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowBgAlpha(0.8f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(40.0f * base_scale, 20.0f * base_scale));
+    ImGui::Begin("##paused", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize |
+                     ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                     ImGuiWindowFlags_NoFocusOnAppearing);
+    ImGui::SetWindowFontScale(2.4f);
+    const char* title = "Paused";
+    ImGui::SetCursorPosX((ImGui::GetWindowSize().x - ImGui::CalcTextSize(title).x) * 0.5f);
+    ImGui::TextUnformatted(title);
+    ImGui::SetWindowFontScale(1.0f);
+    const char* hint = "Press F4 to continue";
+    ImGui::SetCursorPosX((ImGui::GetWindowSize().x - ImGui::CalcTextSize(hint).x) * 0.5f);
+    ImGui::TextDisabled("%s", hint);
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
 void BackgroundLoading() {
     const u32 done = background_done, total = std::max(background_total.load(), 1u);
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -782,6 +811,9 @@ void DrawWindows() {
     if (loading) {
         LoadingScreen();
     }
+    if (paused) {
+        PausedScreen();
+    }
     float corner = ImGui::GetMainViewport()->WorkPos.y + ImGui::GetMainViewport()->WorkSize.y - 12.0f * base_scale;
     if (NoticeActive()) {
         Notice(corner);
@@ -868,7 +900,32 @@ bool HandleEvent(const SDL_Event& event) {
         display_open = true;
         return true;
     }
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F4 && !event.key.repeat && !text_entry_active &&
+        !(event.key.mod & SDL_KMOD_ALT)) { // Alt+F4 still closes the window at once
+        if (pause_available) {
+            pause_requested = !pause_requested;
+        } else {
+            ShowNotice("F4 can't pause this game version", 3000);
+        }
+        return true;
+    }
     return false;
+}
+
+void SetPauseAvailable(bool available) {
+    pause_available = available;
+}
+
+bool PauseRequested() {
+    return pause_requested;
+}
+
+void SetPaused(bool on) {
+    paused = on;
+}
+
+bool Paused() {
+    return paused;
 }
 
 void OpenDisplaySettings() {
@@ -924,7 +981,8 @@ void SetLoading(bool active, u32 done, u32 total) {
 
 bool Visible() {
     return initialized && (loading || background_total || PrefetchActive() || CompileNoteActive() ||
-                           text_entry_active || choice_active || choice_retiring || NoticeActive() || display_open);
+                           text_entry_active || choice_active || choice_retiring || NoticeActive() || display_open ||
+                           paused);
 }
 
 bool CapturesInput() {

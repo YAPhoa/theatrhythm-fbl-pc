@@ -41,6 +41,12 @@ int theatrhythm_gpu_overlay_captures_input(void);
 /* Opens the Display Settings panel (the Options menu's Display Settings button); 1 while it is open. */
 void theatrhythm_display_settings_open(void);
 int theatrhythm_display_settings_is_open(void);
+/* F4's pause (runtime_pause.c). available: the runtime can pause this game version (else F4 shows
+ * a notice); requested: 1 from one press of F4 to the next (any thread); set_paused: the main
+ * thread waits, so the screen shows "Paused" over the last frame and holds vblank events. */
+void theatrhythm_gpu_set_pause_available(int available);
+int theatrhythm_gpu_pause_requested(void);
+void theatrhythm_gpu_set_paused(int paused);
 /* The Options menu's Display Settings page (runtime_display_page.c). get: a setting's value (window
  * mode 0 windowed, 1 borderless, 2 fullscreen; resolution: index into the sizes, largest first;
  * VSync 0/1, off keeping the tearing choice; frame rate limit in FPS, 0 one per vblank, -1 unlimited).

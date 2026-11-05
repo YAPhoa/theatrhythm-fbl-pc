@@ -441,6 +441,18 @@ extern "C" int theatrhythm_display_settings_is_open(void) {
     return TheatrhythmOverlay::DisplaySettingsOpen() ? 1 : 0;
 }
 
+extern "C" void theatrhythm_gpu_set_pause_available(int available) {
+    TheatrhythmOverlay::SetPauseAvailable(available != 0);
+}
+
+extern "C" int theatrhythm_gpu_pause_requested(void) {
+    return TheatrhythmOverlay::PauseRequested() ? 1 : 0;
+}
+
+extern "C" void theatrhythm_gpu_set_paused(int paused) {
+    TheatrhythmOverlay::SetPaused(paused != 0);
+}
+
 extern "C" int theatrhythm_display_get(int setting) {
     const auto& s = TheatrhythmSettings::Get();
     switch (setting) {

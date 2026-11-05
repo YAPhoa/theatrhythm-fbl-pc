@@ -405,6 +405,7 @@ static int32_t output_port(int32_t handle, const void *data, int pace, uint64_t 
     return data ? (int32_t)samples : 0;
 }
 static ABI int32_t audio_output(int32_t handle, const void *data) {
+    runtime_pause_wait(); /* F4's pause: the mixer, and the song with it, stops here */
     uint64_t wake=0;
     int32_t r=output_port(handle,data,1,&wake);
     if (wake) sleep_until(wake);
@@ -414,6 +415,7 @@ typedef struct { int32_t handle; const void *data; } OutputParam;
 static ABI int32_t audio_outputs(const OutputParam *params, uint32_t count) {
     if (!params) return ERR_INVALID_POINTER;
     if (!count || count>PORTS) return ERR_PORT_FULL;
+    runtime_pause_wait();
     int32_t result=0;
     uint64_t wake=0;
     /* One period per call for all ports (FMOD feeds main and BGM together): pacing every

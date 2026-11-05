@@ -7,6 +7,10 @@
 #include "video_core/amdgpu/regs.h"
 #include "video_core/renderer_vulkan/vk_common.h"
 
+namespace TheatrhythmOverlay {
+bool Paused();
+}
+
 namespace DebugStateType {
 enum class QueueType { dcb = 0, ccb = 1, acb = 2 };
 struct QueueDump {
@@ -33,7 +37,9 @@ public:
     void CollectShader(const std::string&, Shader::SwStage, vk::ShaderModule, std::span<const u32>,
                        std::span<const u32>, std::span<const u32>, bool) {}
     void ShowDebugMessage(std::string) {}
-    bool IsGuestThreadsPaused() const { return false; }
+    // theatrhythm: F4's pause (src/runtime_pause.c): the present thread redraws the last frame
+    // under the "Paused" note and holds vblank and flip events.
+    bool IsGuestThreadsPaused() const { return TheatrhythmOverlay::Paused(); }
     void PauseGuestThreads() {}
     void ResumeGuestThreads() {}
 };

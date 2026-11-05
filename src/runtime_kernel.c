@@ -44,6 +44,29 @@ static int32_t fail_posix(int e) { *runtime_errno()=runtime_guest_errno(e); retu
 /* ---- clocks and sleeping ---- */
 static struct timespec process_start;
 __attribute__((constructor)) static void remember_start(void) { clock_gettime(CLOCK_MONOTONIC,&process_start); }
+static uint64_t host_mono_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t); return (uint64_t)t.tv_sec*1000000000u+(uint64_t)t.tv_nsec; }
+/* F4's pause (runtime_pause.c): the guest's monotonic clocks stand still while the game is paused
+ * and then go on without the pause in them, so no game timer sees it. The game thread is the one
+ * writer; readers retry while it changes the two values (an odd count). */
+static uint64_t hold_count, held_ns, paused_ns;
+static uint64_t guest_mono_ns(void) {
+    for (;;) {
+        const uint64_t count=__atomic_load_n(&hold_count,__ATOMIC_ACQUIRE);
+        if (count&1) continue;
+        const uint64_t held=__atomic_load_n(&held_ns,__ATOMIC_RELAXED), paused=__atomic_load_n(&paused_ns,__ATOMIC_RELAXED);
+        const uint64_t now=held ? held : host_mono_ns();
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&hold_count,__ATOMIC_RELAXED)==count) return now-paused;
+    }
+}
+void runtime_clock_hold(int hold) {
+    if (!hold==!__atomic_load_n(&held_ns,__ATOMIC_RELAXED)) return;
+    __atomic_add_fetch(&hold_count,1,__ATOMIC_ACQ_REL);
+    const uint64_t now=host_mono_ns();
+    if (hold) __atomic_store_n(&held_ns,now,__ATOMIC_RELAXED);
+    else { __atomic_store_n(&paused_ns,paused_ns+(now-held_ns),__ATOMIC_RELAXED); __atomic_store_n(&held_ns,0,__ATOMIC_RELAXED); }
+    __atomic_add_fetch(&hold_count,1,__ATOMIC_RELEASE);
+}
 static int host_clock(uint32_t id,clockid_t *out) {
     switch (id) {
     case 0: case 9: case 10: *out=CLOCK_REALTIME; return 1;            /* REALTIME(_PRECISE/_FAST) */
@@ -59,7 +82,8 @@ static int clock_read(uint32_t id,GuestTimespec *ts) {
     clockid_t host;
     if (!ts || !host_clock(id,&host)) return EINVAL;
     struct timespec t;
-    if (clock_gettime(host,&t)) return errno;
+    if (host==CLOCK_MONOTONIC) { const uint64_t ns=guest_mono_ns(); t.tv_sec=(time_t)(ns/1000000000u); t.tv_nsec=(long)(ns%1000000000u); }
+    else if (clock_gettime(host,&t)) return errno;
     if (id==13) t.tv_nsec=0;
     ts->sec=t.tv_sec; ts->nsec=t.tv_nsec; return 0;
 }
@@ -76,14 +100,10 @@ static ABI int32_t posix_clock_getres(uint32_t id,GuestTimespec *ts) {
     if (ts) { ts->sec=t.tv_sec; ts->nsec=t.tv_nsec; }
     return 0;
 }
-static ABI uint64_t process_time(void) {
-    struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
-    return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000+(uint64_t)((t.tv_nsec-process_start.tv_nsec)/1000);
-}
 static ABI uint64_t process_time_counter(void) {
-    struct timespec t; clock_gettime(CLOCK_MONOTONIC,&t);
-    return (uint64_t)(t.tv_sec-process_start.tv_sec)*1000000000+(uint64_t)(t.tv_nsec-process_start.tv_nsec);
+    return guest_mono_ns()-((uint64_t)process_start.tv_sec*1000000000u+(uint64_t)process_start.tv_nsec);
 }
+static ABI uint64_t process_time(void) { return process_time_counter()/1000; }
 static ABI uint64_t process_time_frequency(void) { return 1000000000; }
 /* The guest's TSC is the process clock in nanoseconds. The raw rdtsc differs per core on some
  * hosts (3.9 s apart on a Xeon E5-2680 v4), so a thread moving cores made the game jump. */

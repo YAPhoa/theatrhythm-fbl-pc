@@ -142,6 +142,18 @@ above that (an uncapped `fps_limit`) the party slid along in its idle pose. `src
 sends that comparison through a stub that divides the distance by (60 x `Time.deltaTime`)^2, so
 any frame rate reads like 60; at 60 fps the result is unchanged.
 
+F4 pauses the game and F4 again goes on (`src/runtime_pause.c`); the overlay takes the key (Alt+F4
+still closes). Nothing of the game's is called: its main thread waits at the start of
+`ProcessLifecyclePS4::Update`, as in a long frame. While it waits, the guest's monotonic clocks
+(`sceKernelGetProcessTime`, `sceKernelReadTsc`, `clock_gettime` MONOTONIC) stand still and then go
+on without the pause, so Unity's and the song's time do not jump; `sceAudioOutOutput` holds FMOD's
+mixer, so the music stops where it is; the present thread redraws the last frame under "Paused"
+without vblank or flip events (`DebugState.IsGuestThreadsPaused`), and the hang dump waits. Other
+threads finish what they are doing (a save being written, loading) and then wait as in any long
+frame; Unity's render thread logs "Forcing submitDone to avoid TRC R4089 breach" every few seconds,
+as it does on a PS4 when a frame takes that long. Wall-clock time (`gettimeofday`, REALTIME) keeps
+running.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).
