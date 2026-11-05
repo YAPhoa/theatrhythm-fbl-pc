@@ -295,6 +295,13 @@ extern "C" int theatrhythm_gpu_init(const TheatrhythmGpuConfig* config) {
         std::_Exit(0);
     });
     g_window_thread.detach();
+    // The PS4 shows the game's pic1.png while it starts; decoded while the window opens.
+    if (config->splash) {
+        TheatrhythmPng::Image splash;
+        if (TheatrhythmPng::LoadRgba(config->splash, splash)) {
+            TheatrhythmOverlay::SetSplash(std::move(splash));
+        }
+    }
     {
         std::unique_lock lock{g_window_mutex};
         g_window_cv.wait(lock, [] { return g_window_ready; });

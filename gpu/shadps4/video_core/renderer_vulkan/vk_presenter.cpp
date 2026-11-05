@@ -292,6 +292,60 @@ void CaptureScreenshot(const Instance& instance, Scheduler& scheduler, vk::Comma
     });
 }
 
+/// While the start-up picture waits (TheatrhythmOverlay::SplashWaiting), a few rows across `frame`
+/// (layout TransferSrcOptimal) are read back to tell when the game first shows something other
+/// than black.
+void SampleForSplash(const Instance& instance, Scheduler& scheduler, vk::CommandBuffer cmdbuf,
+                     const Frame& frame) {
+    constexpr u32 max_rows = 24;
+    const u32 rows = std::min(max_rows, frame.height);
+    const VkDeviceSize row_bytes = VkDeviceSize(frame.width) * 4;
+    const VkBufferCreateInfo buffer_ci{.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                       .size = row_bytes * rows,
+                                       .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT};
+    const VmaAllocationCreateInfo alloc_ci{
+        .flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+        .usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST};
+    VkBuffer buffer{};
+    VmaAllocation allocation{};
+    VmaAllocationInfo info{};
+    if (!rows || vmaCreateBuffer(instance.GetAllocator(), &buffer_ci, &alloc_ci, &buffer, &allocation,
+                                 &info) != VK_SUCCESS) {
+        TheatrhythmOverlay::NoteSplashFrame(true); // cannot tell: let the picture go
+        return;
+    }
+    std::array<vk::BufferImageCopy, max_rows> copies{};
+    for (u32 i = 0; i < rows; ++i) {
+        copies[i] = vk::BufferImageCopy{
+            .bufferOffset = row_bytes * i,
+            .imageSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
+            .imageOffset = {0, s32(u64(frame.height) * (2 * i + 1) / (2 * rows)), 0},
+            .imageExtent = {frame.width, 1, 1},
+        };
+    }
+    cmdbuf.copyImageToBuffer(frame.image, vk::ImageLayout::eTransferSrcOptimal, buffer, rows, copies.data());
+    const vk::MemoryBarrier to_host{
+        .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+        .dstAccessMask = vk::AccessFlagBits::eHostRead,
+    };
+    cmdbuf.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eHost,
+                           vk::DependencyFlags{}, to_host, {}, {});
+    scheduler.DeferPriorityOperation([allocator = instance.GetAllocator(), buffer, allocation, info,
+                                      width = frame.width, rows, format = frame.format, hdr = frame.is_hdr] {
+        vmaInvalidateAllocation(allocator, allocation, 0, VK_WHOLE_SIZE);
+        std::vector<u8> rgba;
+        const bool converted =
+            ScreenshotToRgba8(static_cast<const u8*>(info.pMappedData), width, rows, format, hdr, rgba);
+        vmaDestroyBuffer(allocator, buffer, allocation);
+        // A picture: at least 0.2% of the samples clearly above black.
+        size_t lit = 0;
+        for (size_t i = 0; converted && i < rgba.size(); i += 4) {
+            lit += std::max({rgba[i], rgba[i + 1], rgba[i + 2]}) > 40;
+        }
+        TheatrhythmOverlay::NoteSplashFrame(!converted || lit * 500 >= size_t(width) * rows);
+    });
+}
+
 } // namespace
 
 Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_)
@@ -318,6 +372,8 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
 
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
     TheatrhythmOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images);
+    // theatrhythm: the window was created hidden; from here on it gets frames (the start-up picture).
+    window.Show();
 
     const bool binary_cache = EmulatorSettingsImpl::Flag("THEATRHYTHM_PIPELINE_BINARIES", true) &&
                               EmulatorSettings.IsPipelineCacheEnabled();
@@ -916,6 +972,9 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                          vk::Filter::eLinear);
         if (VideoCore::ConsumeGameOnlyScreenshotRequests() != 0) {
             CaptureScreenshot(instance, scheduler, cmdbuf, *frame);
+        }
+        if (is_game_frame && !is_reusing_frame && TheatrhythmOverlay::SplashWaiting()) {
+            SampleForSplash(instance, scheduler, cmdbuf, *frame);
         }
         // theatrhythm: the settings menu / FPS counter over the frame, at display resolution.
         const bool overlay = TheatrhythmOverlay::Visible();

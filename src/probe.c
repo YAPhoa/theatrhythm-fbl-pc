@@ -932,7 +932,10 @@ int main(int argc, char **argv) {
         runtime_kernel_set_psf_attributes(attributes);
         uint64_t sdk=0;
         if (procparam) memcpy(&sdk,image+procparam+16,8); /* procparam: size, magic, count, sdk_version */
-        TheatrhythmGpuConfig gpu={title,serial,user_dir ? user_dir : "user",(uint32_t)sdk,attributes,1920,1080};
+        char splash[4096];
+        snprintf(splash,sizeof(splash),"%s/sce_sys/pic1.png",app0 ? app0 : ".");
+        TheatrhythmGpuConfig gpu={title,serial,user_dir ? user_dir : "user",(uint32_t)sdk,attributes,1920,1080,
+                                  app0 ? splash : NULL};
         gpu_enabled=1; /* page tracking starts while the rasterizer registers guest memory */
         if (theatrhythm_gpu_init(&gpu)) fail("GPU initialization failed");
         printf("GPU: window and Vulkan presenter ready; SDK 0x%08x, %u HLE symbols\n",(unsigned)sdk,theatrhythm_gpu_symbol_count());
