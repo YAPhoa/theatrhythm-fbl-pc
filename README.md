@@ -113,6 +113,11 @@ Shader caches are kept in `~/.cache/theatrhythm-fbl`.
 Unzip (on Linux, extract) the new release over the old folder, then run the setup once more (the
 game asks you to). Your folders, saves and settings are kept.
 
+Setup also remembers your folders outside the release, in `%APPDATA%\Theatrhythm Final Bar Line\paths.ini`
+(Linux: `~/.config/theatrhythm-fbl/paths.ini`). A release unzipped into a new folder starts from
+them, so setup only needs **Install**. To use another save folder without running setup, set the
+environment variable `THEATRHYTHM_SAVE_DIR` to it; it wins over the one setup chose.
+
 ## Settings
 
 Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,

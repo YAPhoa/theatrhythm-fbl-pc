@@ -58,6 +58,12 @@ std::filesystem::path exe_folder();
 std::filesystem::path game_folder(const std::filesystem::path& path);
 // What `root`/paths.ini names, if it names both folders.
 std::optional<Paths> read_paths(const std::filesystem::path& root);
+// The per-user copy of paths.ini that install() also writes: %APPDATA%\Theatrhythm Final Bar
+// Line\paths.ini, or $XDG_CONFIG_HOME/theatrhythm-fbl/paths.ini (~/.config when unset); src/launch.c
+// reads it when the release folder has none. Empty when %APPDATA% is unset.
+std::filesystem::path user_paths_ini();
+// read_paths(root), else the per-user copy: the folders to start from in a release just unpacked.
+std::optional<Paths> remembered_paths(const std::filesystem::path& root);
 // save/ in the release folder: a release is never zipped with one, so unpacking a newer release over
 // the folder keeps the saves.
 std::filesystem::path default_save();
