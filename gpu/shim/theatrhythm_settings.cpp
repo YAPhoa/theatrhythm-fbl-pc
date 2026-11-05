@@ -90,6 +90,95 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     }
 }
 
+std::vector<std::pair<std::string, std::string>> DisplayKeys() {
+    const auto& v = Get();
+    const int monitor = v.monitor;
+    return {
+        {"display_mode", std::string(TheatrhythmGraphics::DisplayModeKeys[std::clamp(v.display_mode.load(), 0, 2)])},
+        {"monitor", monitor < 0 ? std::string() : std::to_string(monitor)},
+        {"window", std::to_string(v.window_width.load()) + "x" + std::to_string(v.window_height.load())},
+        {"vsync", v.vsync ? "1" : "0"},
+        {"tearing", v.tearing ? "1" : "0"},
+        {"fps_limit", v.fps_limit == TheatrhythmGraphics::FpsUnlimited ? "unlimited" : std::to_string(v.fps_limit.load())},
+        {"frames_queued", std::to_string(v.frames_queued.load())},
+        {"anisotropy", std::to_string(v.anisotropy.load())},
+        {"render_resolution", std::string(RenderResolutionKeys[std::clamp(v.render_resolution.load(), 0, RenderResolutionCount - 1)])},
+    };
+}
+
+std::mutex save_mutex;
+// The display keys as Path() holds them: loaded at start, updated by each save.
+std::vector<std::pair<std::string, std::string>> saved_keys;
+
+bool Exists(const char* path) {
+    FILE* file = std::fopen(path, "r");
+    if (file) std::fclose(file);
+    return file != nullptr;
+}
+
+// save_mutex held. Writes the display keys into Path() in place, from ReadPath()'s lines.
+void WriteDisplay() {
+    auto keys = DisplayKeys();
+    saved_keys = keys;
+    std::vector<std::string> lines;
+    if (FILE* file = std::fopen(ReadPath(), "r")) {
+        char line[1024];
+        while (std::fgets(line, sizeof(line), file)) {
+            std::string text{line};
+            text.erase(text.find_last_not_of("\r\n") + 1);
+            lines.push_back(text);
+        }
+        std::fclose(file);
+    }
+    for (std::string& line : lines) {
+        const auto eq = line.find('=');
+        if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+        const auto key = std::find_if(keys.begin(), keys.end(), [&](const auto& k) { return line.substr(0, eq) == k.first; });
+        if (key == keys.end()) continue;
+        line = key->first + "=" + key->second;
+        keys.erase(key);
+    }
+    for (const auto& [key, value] : keys) lines.push_back(key + "=" + value);
+    FILE* file = std::fopen(Path(), "wb");
+    if (!file) {
+        std::printf("Settings: cannot write %s\n", Path());
+        return;
+    }
+    for (const std::string& line : lines) std::fprintf(file, "%s\n", line.c_str());
+    std::fclose(file);
+    std::printf("Settings: saved display settings to %s\n", Path());
+}
+
+// Gives the save folder its own settings.ini at start: the default file copied as it is (the
+// environment overrides stay out of it), or the display keys when there is none.
+void CopyToSaveFolder() {
+    const char* env = std::getenv("THEATRHYTHM_CONFIG"); /* the launcher's or run.py's save folder */
+    if (!env || !env[0] || Exists(Path())) return;
+    const char* source = ReadPath();
+    if (std::string_view(source) == Path()) {
+        WriteDisplay();
+        return;
+    }
+    FILE* in = std::fopen(source, "rb");
+    if (!in) return;
+    std::string data;
+    char buffer[4096];
+    for (size_t n; (n = std::fread(buffer, 1, sizeof(buffer), in)) > 0;) data.append(buffer, n);
+    std::fclose(in);
+    FILE* out = std::fopen(Path(), "wb");
+    if (!out) {
+        std::printf("Settings: cannot write %s\n", Path());
+        return;
+    }
+    const bool ok = std::fwrite(data.data(), 1, data.size(), out) == data.size();
+    if (std::fclose(out) != 0 || !ok) {
+        std::printf("Settings: cannot write %s\n", Path());
+        std::remove(Path());
+        return;
+    }
+    std::printf("Settings: copied %s to %s\n", source, Path());
+}
+
 } // namespace
 
 Values& Get() {
@@ -133,52 +222,19 @@ void Load() {
         }
     }
     v.startup_monitor = v.monitor;
+    std::scoped_lock lock{save_mutex};
+    saved_keys = DisplayKeys();
+    CopyToSaveFolder();
 }
 
 void SaveDisplay() {
-    static std::mutex mutex;
-    std::scoped_lock lock{mutex};
-    const auto& v = Get();
-    const int monitor = v.monitor;
-    std::vector<std::pair<std::string, std::string>> keys = {
-        {"display_mode", std::string(TheatrhythmGraphics::DisplayModeKeys[std::clamp(v.display_mode.load(), 0, 2)])},
-        {"monitor", monitor < 0 ? std::string() : std::to_string(monitor)},
-        {"window", std::to_string(v.window_width.load()) + "x" + std::to_string(v.window_height.load())},
-        {"vsync", v.vsync ? "1" : "0"},
-        {"tearing", v.tearing ? "1" : "0"},
-        {"fps_limit", v.fps_limit == TheatrhythmGraphics::FpsUnlimited ? "unlimited" : std::to_string(v.fps_limit.load())},
-        {"frames_queued", std::to_string(v.frames_queued.load())},
-        {"anisotropy", std::to_string(v.anisotropy.load())},
-        {"render_resolution", std::string(RenderResolutionKeys[std::clamp(v.render_resolution.load(), 0, RenderResolutionCount - 1)])},
-    };
-    // The first save copies the default file (its comments and other keys) into Path().
-    std::vector<std::string> lines;
-    if (FILE* file = std::fopen(ReadPath(), "r")) {
-        char line[1024];
-        while (std::fgets(line, sizeof(line), file)) {
-            std::string text{line};
-            text.erase(text.find_last_not_of("\r\n") + 1);
-            lines.push_back(text);
-        }
-        std::fclose(file);
-    }
-    for (std::string& line : lines) {
-        const auto eq = line.find('=');
-        if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
-        const auto key = std::find_if(keys.begin(), keys.end(), [&](const auto& k) { return line.substr(0, eq) == k.first; });
-        if (key == keys.end()) continue;
-        line = key->first + "=" + key->second;
-        keys.erase(key);
-    }
-    for (const auto& [key, value] : keys) lines.push_back(key + "=" + value);
-    FILE* file = std::fopen(Path(), "wb");
-    if (!file) {
-        std::printf("Settings: cannot write %s\n", Path());
-        return;
-    }
-    for (const std::string& line : lines) std::fprintf(file, "%s\n", line.c_str());
-    std::fclose(file);
-    std::printf("Settings: saved display settings to %s\n", Path());
+    std::scoped_lock lock{save_mutex};
+    WriteDisplay();
+}
+
+void SaveDisplayIfChanged() {
+    std::scoped_lock lock{save_mutex};
+    if (DisplayKeys() != saved_keys) WriteDisplay();
 }
 
 } // namespace TheatrhythmSettings
