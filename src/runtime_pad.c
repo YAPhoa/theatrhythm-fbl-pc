@@ -498,6 +498,34 @@ static void replay_sample(PadData *d) {
     d->l2=s->l2; d->r2=s->r2;
 }
 
+/* F4's exit window (runtime_exit_prompt.c) takes only Left/Right between No (left, focused first)
+ * and Yes, and Cross; Circle does nothing there. So Circle and Options (Escape is Circle; Start,
+ * Tab and P are Options) answer No as a player would: Left, which stays on No, then Cross, each
+ * held 80 ms with a gap. Meanwhile the pad shows only that, and the key that started it, with the
+ * Left and Cross, stays hidden until released, so nothing reaches what is under the window. */
+enum { NO_STEP_US=80000 };
+static struct { uint64_t start; int active, held; } prompt_no;
+static void exit_prompt_no(PadData *d) {
+    const uint32_t keys=BTN_CIRCLE|BTN_OPTIONS, played=keys|BTN_LEFT|BTN_CROSS;
+    const int open=runtime_exit_prompt_open();
+    if (prompt_no.active && open) {
+        const uint64_t t=now_us()-prompt_no.start;
+        d->buttons=t<NO_STEP_US ? BTN_LEFT : t>=2*NO_STEP_US && t<3*NO_STEP_US ? BTN_CROSS : 0;
+        if (t>=4*NO_STEP_US) prompt_no.active=0; /* the window is still open: the key may try again */
+        return;
+    }
+    prompt_no.active=0;
+    if (prompt_no.held) {
+        if (d->buttons & (open ? keys : played)) { d->buttons&=~(open ? keys : played); return; }
+        prompt_no.held=0;
+    }
+    if (open && (d->buttons & keys)) {
+        prompt_no.active=prompt_no.held=1;
+        prompt_no.start=now_us();
+        d->buttons=BTN_LEFT;
+    }
+}
+
 /* After a dialog closes, buttons still held (the Cross that accepted a name) stay hidden until
  * released: the game would take them as a new press. */
 static int hold_after_capture;
@@ -522,6 +550,7 @@ static void sample(PadData *d) {
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
     play_click(d);
+    exit_prompt_no(d);
     if (hold_after_capture) {
         if (d->buttons) d->buttons=0;
         else hold_after_capture=0;

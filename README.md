@@ -213,7 +213,7 @@ taps a trigger and either stick slides, so each hand gets a stick and taps:
 | T | touchpad click |
 
 **F4** asks "Exit the game?" in the game's own Yes/No window, with its sounds (No is selected
-first). During a song it pauses the song first, and No carries on from the same moment after a
+first; Circle, Esc and Start answer No too). During a song it pauses the song first, and No carries on from the same moment after a
 3-2-1 countdown. Yes closes the game, after any save in progress is written. It doesn't open over
 another of the game's windows or during a scene change: a note says so. Alt+F4 still closes the
 game at once.

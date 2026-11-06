@@ -166,6 +166,8 @@ static ABI int reaction(HookRegs *r) {
     return 1;
 }
 
+int runtime_exit_prompt_open(void) { return asking; }
+
 /* The window's text: "Restore default settings? / Language settings will not be changed." in every
  * language; its buttons keep the game's Yes and No. */
 const char *runtime_exit_prompt_translation(const char *term) {
