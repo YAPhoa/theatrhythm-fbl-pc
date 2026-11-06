@@ -79,7 +79,7 @@ ICON = PORT / 'packaging' / 'windows' / 'theatrhythm-fbl.ico'
 # What prepare/run.py needs: the scripts, the assets they read and the template of settings.ini.
 PREPARE_FILES = ['run.py', 'settings.example.ini', *sorted(f'scripts/{p.name}' for p in (PORT / 'scripts').glob('*.py')),
                  *sorted(f'assets/button_icons/{p.name}' for p in (PORT / 'assets' / 'button_icons').glob('*.bc7')),
-                 'assets/config_icon/display.bc7']
+                 'assets/config_icon/display.bc7', 'assets/controller_pad/xbox.bc7']
 # The DLC maker's release (--dlcmaker): its program and the ffmpeg it runs.
 DLCMAKER = PORT / 'tools' / 'dlcmaker'
 DLCMAKER_EXE = DLCMAKER / 'app' / 'out' / ('theatrhythm-dlcmaker' if LINUX else 'theatrhythm-dlcmaker.exe')

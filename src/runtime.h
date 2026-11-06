@@ -43,11 +43,14 @@ void runtime_memory_read_backing(uintptr_t address, void *data, uint64_t size);
 void runtime_memory_visit_mapped(void (*visit)(uintptr_t address, const unsigned char *bytes, uint64_t size,
                                                void *context), void *context);
 void runtime_memory_invalidate(uintptr_t address, uint64_t size);
-/* Button prompt icons (runtime_button_icons.c): mode "ps4", "xbox", "keyboard" or "auto" (follows
- * the device the player last used, reported by the pad code); folder holds prepare's icon files. */
+/* Button prompt icons and the Live Info pad (runtime_button_icons.c): mode "ps4", "xbox", "keyboard"
+ * or "auto" (follows the device the player last used, reported by the pad code); the folders hold
+ * prepare's icon and pad files. runtime_button_icons_pad: the pad drawing the atlas shows now
+ * (BUTTON_ICONS_PS4 or BUTTON_ICONS_XBOX; keyboard players keep the DualShock 4). */
 enum { BUTTON_ICONS_PS4, BUTTON_ICONS_XBOX, BUTTON_ICONS_KEYBOARD, BUTTON_ICONS_SETS };
-void runtime_button_icons_configure(const char *folder, const char *mode);
+void runtime_button_icons_configure(const char *icons, const char *pad, const char *mode);
 void runtime_button_icons_input(int set);
+int runtime_button_icons_pad(void);
 /* The game code the runner patches, found by name and bytes in any game version
  * (runtime_game_code.c, tools/game_code.py). A site: `method` "Namespace.Type/Nested::Method" in
  * the IL2CPP metadata, and a pattern at its entry or (`inside`) once in its first 64 KiB; or method
@@ -83,6 +86,10 @@ int runtime_field_walk_install(unsigned char *image, uint64_t module_base, unsig
  * hides itself for a count of 0, with its stub written to `stubs` (`size` bytes, within rel32 reach
  * of the image, which is still writable). 0 when installed. */
 int runtime_dlc_bonus_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The Live Info pad fitted to the Xbox drawing when the pad atlas shows it (runtime_xbox_pad.c):
+ * hooks MSGamePad's per-frame calls, with stubs written to `stubs` (`size` bytes, within rel32 reach
+ * of the image, which is still writable). 0 when installed. */
+int runtime_xbox_pad_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
