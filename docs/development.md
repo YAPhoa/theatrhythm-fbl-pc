@@ -163,8 +163,7 @@ picks it unless first-time setup is due); the movie can be skipped with Options 
 before the movie starts. Later Opening scenes in the same session play as before.
 
 F4 asks "Exit the game?" in the game's own Yes/No window (`src/runtime_exit_prompt.c`), so it has
-the game's look and sounds. The overlay takes the key (Alt+F4 still closes at once), and the Share button (SDL `misc1`)
-unless `pad_map` names it; on the game
+the game's look and sounds. The overlay takes the key (Alt+F4 still closes at once); on the game
 thread `ProcessLifecyclePS4::Update` (every frame) calls the Language page's `openResetSettingWindow`
 with the lifecycle object in place of the page, which only becomes the target of the window's
 reaction callback. The Display page's translation hook swaps its text term
