@@ -220,6 +220,26 @@ class CommandLineTests(unittest.TestCase):
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (2, 2, 48000))
             self.assertEqual(w.readframes(w.getnframes()), want)
 
+    def test_ids_used_in_the_extra_dlc_folder_are_skipped(self):
+        # --dlc: the game's extra DLC folder, shadPS4's layout (<title ID>/<label>/): only read.
+        extra = self.root / 'extra'
+        used = extra / 'CUSA32853' / 'Other'
+        used.mkdir(parents=True)
+        (used / 'dlcparam.json').write_text('{"Version":1,"PackageName":"DLCPACK0000100","HasContents":true}')
+        broken = extra / 'CUSA32853' / 'Broken'
+        broken.mkdir()
+        (broken / 'dlcparam.json').write_text('not json')
+        pack = self.root / 'ws' / 'Pack Ü 1'
+        code, text, err = self.session.run('check', pack, record=False)
+        self.assertEqual(code, 0, text + err)
+        self.assertIn('DLCPACK0000100', text)
+        code, text, err = self.session.run('check', pack, '--dlc', extra, record=False)
+        self.assertEqual(code, 0, text + err)
+        self.assertIn('DLCPACK0000101', text)
+        self.assertNotIn('DLCPACK0000100', text)
+        self.assertIn('skipped', text)
+        self.assertEqual((used / 'dlcparam.json').read_text(), '{"Version":1,"PackageName":"DLCPACK0000100","HasContents":true}')
+
     @unittest.skipUnless(GAME and (GAME / 'Media/StreamingAssets/aa/catalog.json').is_file(),
                          'needs the game dump (THEATRHYTHM_GAME_DIR)')
     def test_built_pack_is_the_python_dlc_makers(self):

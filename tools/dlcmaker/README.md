@@ -134,7 +134,9 @@ command line in one program: with no arguments it opens the window, with a comma
   `bash tools/dlcmaker/build-ffmpeg.sh DIR` builds the small static one releases ship.
 - **The decrypted game dump**: the folder holding `eboot.bin` and
   `Media/StreamingAssets/aa/catalog.json` (`--game DUMP` or `THEATRHYTHM_GAME_DIR`).
-- **The runner's save folder**: packs are installed into its `addcont/` folder.
+- **The runner's save folder**: packs are installed into its `addcont/` folder. When the game also reads
+  an **extra DLC folder** (setup's optional folder, `dlc=` in `paths.ini`, e.g. shadPS4's `addcont`),
+  the window passes it on as `--dlc DIR`: packs there are never changed, but their IDs are skipped.
 
 From a terminal:
 
@@ -397,6 +399,7 @@ theatrhythm-dlcmaker new     FOLDER             start a DLC folder with an examp
 theatrhythm-dlcmaker check   PATH               parse and check (decodes audio, not video)
 theatrhythm-dlcmaker build   PATH --out DIR     build each DLC into DIR/<label>/
 theatrhythm-dlcmaker install PATH --user SAVE   build into SAVE/addcont/
+                         [--dlc DIR]            also skip the IDs of the packs in the game's extra DLC folder
 theatrhythm-dlcmaker extract SONG FOLDER        a game song as a song folder (private tests)
 ```
 
@@ -434,7 +437,8 @@ dump at build time, so nothing is copied into the project. Set `stage` to the ga
 
 - **IDs.** A pack gets `DLCPACKnnnnnnn` (100-999). Its series gets `SERIESnnnnnnn` (200-999), in its own
   sort group. Each song gets `MUSICnnnnnnn` (600-9999). IDs already used by other packs in the target
-  `addcont/` are skipped, and once given out they are kept in `dlc.lock.json`.
+  `addcont/` are skipped, and so are those of the packs in the game's extra DLC folder (`--dlc`; its
+  `<title ID>/` folder too), and once given out they are kept in `dlc.lock.json`.
 - **Tables.** Rows go into the 10 pack tables (Music, Sound, Series, DLCMusic, DLCPack, ...), cloned
   from a template song's rows.
 - **Series.** The series row has a `JacketLottery` weight of 0.025, like the game's own DLC group.

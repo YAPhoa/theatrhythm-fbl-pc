@@ -332,6 +332,7 @@ struct Ui {
     Surface main;
     float scale = 1;
     std::string workspace, game, save; // the folder boxes
+    std::string dlc;                   // the game's extra DLC folder (paths.ini dlc=): its packs' IDs are skipped
     std::vector<Field> fields;         // every field of kDlcFields and kSongFields
     std::string heading;
     std::vector<std::vector<std::string>> chart_rows, problem_rows;
@@ -879,6 +880,8 @@ void run_command(std::string command) {
     }
     settle_edits("first", [command, ws] {
         std::vector<std::string> args = {command, ws};
+        if (!ui.dlc.empty())
+            args.insert(args.end(), {"--dlc", ui.dlc});
         std::string game = strip(ui.game), save = strip(ui.save);
         if (command != "check") {
             if (game.empty()) {
@@ -2143,6 +2146,7 @@ void create_controls() {
     ui.workspace = ini["workspace"];
     ui.game = value("game");
     ui.save = value("save");
+    ui.dlc = paths["dlc"];
     show_selection();
 
     // A release ships ffmpeg next to this program (the commands look there and on PATH themselves).

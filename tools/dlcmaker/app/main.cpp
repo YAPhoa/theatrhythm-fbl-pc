@@ -317,6 +317,7 @@ struct Ui {
     HFONT font = nullptr, bold = nullptr;
     UINT dpi = 96;
     fs::path root, tool;        // exe folder; the unpacked payload (ffmpeg.exe), if any
+    std::wstring dlc;           // the game's extra DLC folder (paths.ini dlc=): its packs' IDs are skipped
     Model model;
     int sel_dlc = -1, sel_song = -1;
     std::wstring sel_folder;    // reselected after a reload
@@ -1009,6 +1010,8 @@ void run_command(const wchar_t* command) {
         }
         args.insert(args.end(), {L"--user", save});
     }
+    if (!ui.dlc.empty())
+        args.insert(args.end(), {L"--dlc", ui.dlc});
     store_settings();
     SetWindowTextW(ui.log, L"");
     queue(JobKind::Run, args, std::wstring(command) + L" " + ws);
@@ -2076,6 +2079,7 @@ void create_controls() {
     SetWindowTextW(ui.workspace, ini[L"workspace"].c_str());
     SetWindowTextW(ui.game, value(L"game").c_str());
     SetWindowTextW(ui.save, value(L"save").c_str());
+    ui.dlc = paths[L"dlc"];
     set_busy(false);
     show_selection();
 
