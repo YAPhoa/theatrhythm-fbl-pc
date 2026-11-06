@@ -116,6 +116,8 @@ void runtime_eventflag_report(void);
 unsigned runtime_sema_waiters(uint32_t id);
 uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
+/* An extra folder of add-ons next to <user>/addcont/ (its <title_id>/ subfolder when it has one). */
+void runtime_content_extra_dir(const char *folder,const char *title_id);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
 typedef struct { const char *name; void *function; } RuntimeExport;

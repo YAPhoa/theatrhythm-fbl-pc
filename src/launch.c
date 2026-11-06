@@ -5,6 +5,7 @@
  *     game=<the dump: eboot.bin, sce_module, sce_sys, Media>
  *     save=<saves and the launch log: what run.py calls --user>
  *     cache=<optional: shader caches; by default the folder every copy shares, as run.py's>
+ *     dlc=<optional: one more folder of DLC, read next to save's addcont, e.g. shadPS4's addcont>
  * Without paths.ini here, the per-user copy the setup also writes is read (user_paths_ini).
  * Narrow strings are UTF-8 (Windows: the manifest's activeCodePage). */
 #include "launch.h"
@@ -32,7 +33,7 @@
 #define TITLE "Theatrhythm Final Bar Line"
 #define RUN_SETUP "Run " SETUP " (in the game's folder) to set the game up."
 
-static char exe_dir[PATH_CHARS], game[PATH_CHARS], save[PATH_CHARS], cache[PATH_CHARS];
+static char exe_dir[PATH_CHARS], game[PATH_CHARS], save[PATH_CHARS], cache[PATH_CHARS], dlc[PATH_CHARS];
 static char boot[PATH_CHARS], profile[PATH_CHARS], isa[PATH_CHARS], log_path[PATH_CHARS];
 static char *args[64];
 static int unattended; /* started from Explorer, a file manager or a shortcut: nobody reads the output */
@@ -98,9 +99,9 @@ static void user_paths_ini(char *out) {
 #endif
 }
 
-/* game=, save= and cache= of paths.ini; 1 when game and save are there. */
+/* game=, save=, cache= and dlc= of paths.ini; 1 when game and save are there. */
 static int read_paths(const char *ini) {
-    game[0] = save[0] = cache[0] = 0;
+    game[0] = save[0] = cache[0] = dlc[0] = 0;
     FILE *f = fopen(ini, "rb");
     if (!f) return 0;
     char line[PATH_CHARS + 64];
@@ -117,6 +118,7 @@ static int read_paths(const char *ini) {
         if (!strcasecmp(key, "game")) set_path(game, value);
         else if (!strcasecmp(key, "save")) set_path(save, value);
         else if (!strcasecmp(key, "cache")) set_path(cache, value);
+        else if (!strcasecmp(key, "dlc")) set_path(dlc, value);
     }
     fclose(f);
     if (!cache[0]) shared_cache(cache);
@@ -206,6 +208,9 @@ int launch_from_paths_ini(int *argc, char ***argv) {
     /* THEATRHYTHM_SAVE_DIR overrides save= (a relative one is relative to the exe's folder). */
     const char *save_override = getenv("THEATRHYTHM_SAVE_DIR");
     if (save_override && save_override[0]) set_path(save, save_override);
+    /* THEATRHYTHM_DLC_DIR overrides dlc= the same way. */
+    const char *dlc_override = getenv("THEATRHYTHM_DLC_DIR");
+    if (dlc_override && dlc_override[0]) set_path(dlc, dlc_override);
     snprintf(boot, sizeof boot, "%s" SEP "game" SEP "boot-linked.bin", exe_dir);
     snprintf(profile, sizeof profile, "%s" SEP "game" SEP "content.bin", exe_dir);
     snprintf(isa, sizeof isa, "%s" SEP "game" SEP "isa-rewrite.bin", exe_dir);
@@ -264,12 +269,14 @@ int launch_from_paths_ini(int *argc, char ***argv) {
     args[count++] = "--content-profile"; args[count++] = profile;
     args[count++] = "--app0"; args[count++] = game;
     args[count++] = "--user"; args[count++] = save;
+    if (dlc[0]) { args[count++] = "--dlc"; args[count++] = dlc; }
     args[count++] = "--timeout"; args[count++] = "0";
     if (exists(isa)) { args[count++] = "--isa-rewrite"; args[count++] = isa; }
     for (int i = 1; i < *argc && count < (int)(sizeof args / sizeof *args) - 1; ++i)
         if (strcmp((*argv)[i], "--console")) args[count++] = (*argv)[i];
     args[count] = NULL;
     printf("Launch: %s (%s)\nLaunch: game %s\nLaunch: save %s\nLaunch: cache %s\n", ini, current, game, save, cache);
+    if (dlc[0]) printf("Launch: dlc %s\n", dlc);
     *argc = count;
     *argv = args;
     return 0;

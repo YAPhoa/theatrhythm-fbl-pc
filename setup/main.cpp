@@ -2,13 +2,13 @@
 // theatrhythm-setup.exe: sets up the release folder it sits in (tools/package.py) from the player's
 // Theatrhythm Final Bar Line dump, so the game starts from theatrhythm-fbl.exe or a desktop shortcut.
 //
-// With no arguments it opens a window: the game folder (the dump) and the save folder, Install and
-// Exit; after an install it offers a desktop shortcut. Run it again to change either folder, or after
-// unpacking a newer release over the folder.
+// With no arguments it opens a window: the game folder (the dump), the save folder and an optional
+// extra DLC folder, Install and Exit; after an install it offers a desktop shortcut. Run it again to
+// change a folder, or after unpacking a newer release over the folder.
 // With arguments it installs from the command line:
 //
 //     theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
-//                           [--shortcut <folder>|desktop]
+//                           [--dlc <folder>|--no-dlc] [--shortcut <folder>|desktop]
 
 #include "setup.h"
 
@@ -76,27 +76,32 @@ private:
 
 constexpr wchar_t kUsage[] =
     L"usage: theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]\n"
-    L"                             [--shortcut <folder>|desktop]\n"
+    L"                             [--dlc <folder>|--no-dlc] [--shortcut <folder>|desktop]\n"
     L"  --game        the decrypted game dump (eboot.bin, sce_module, sce_sys, Media); only ever read\n"
     L"  --save        where your saves go (default: the one paths.ini names, else save\\ here)\n"
     L"  --copy-saves  when --save changes, copy the saves from the old save folder\n"
+    L"  --dlc         one more folder of DLC to read, e.g. shadPS4's addcont (default: the one\n"
+    L"                paths.ini names); --no-dlc reads only the save folder's addcont\n"
     L"  --shortcut    also write the game's shortcut into this folder, or onto the Desktop\n"
     L"Sets up the folder this exe is in. With no arguments, opens the setup window.";
 
 int run_cli(const std::vector<std::wstring>& args) {
     Console con;
-    std::wstring game, save, shortcut;
-    bool copy_saves = false;
+    std::wstring game, save, shortcut, dlc;
+    bool copy_saves = false, no_dlc = false;
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         std::wstring* value = a == L"--game"       ? &game
                               : a == L"--save"     ? &save
                               : a == L"--shortcut" ? &shortcut
+                              : a == L"--dlc"      ? &dlc
                                                    : nullptr;
         if (value && i + 1 < args.size()) {
             *value = args[++i];
         } else if (a == L"--copy-saves") {
             copy_saves = true;
+        } else if (a == L"--no-dlc") {
+            no_dlc = true;
         } else {
             con.err(a == L"--help" || a == L"-h" ? kUsage : std::wstring(kUsage) + L"\n\nunexpected: " + a);
             return 2;
@@ -112,6 +117,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         opt.game = game;
         auto old = setup::remembered_paths(opt.root);
         opt.save = !save.empty() ? fs::path(save) : old ? old->save : setup::default_save();
+        opt.dlc = no_dlc ? fs::path() : !dlc.empty() ? fs::path(dlc) : old ? old->dlc : fs::path();
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
         fs::path exe = setup::install(opt, [&](const std::wstring& line) { con.out(line); });
@@ -135,6 +141,8 @@ enum : int {
     kGameBrowse,
     kSaveEdit,
     kSaveBrowse,
+    kDlcEdit,
+    kDlcBrowse,
     kLog,
     kPlay,
 };
@@ -145,7 +153,7 @@ enum : UINT {
 
 struct Ui {
     HWND wnd = nullptr;
-    HWND game = nullptr, save = nullptr, log = nullptr, play = nullptr;
+    HWND game = nullptr, save = nullptr, dlc = nullptr, log = nullptr, play = nullptr;
     std::vector<HWND> inputs; // disabled while installing (Play Game too, and until the folder is set up)
     HFONT font = nullptr;
     UINT dpi = 96;
@@ -225,7 +233,7 @@ void browse(HWND edit, const wchar_t* title) {
 void start_install() {
     if (ui.busy)
         return;
-    std::wstring game = text_of(ui.game), save = text_of(ui.save);
+    std::wstring game = text_of(ui.game), save = text_of(ui.save), dlc = text_of(ui.dlc);
     if (game.empty()) {
         MessageBoxW(ui.wnd, L"Choose the game folder (your game dump).", kTitle, MB_OK | MB_ICONWARNING);
         return;
@@ -238,6 +246,7 @@ void start_install() {
     opt.root = ui.root;
     opt.game = game;
     opt.save = save;
+    opt.dlc = dlc;
     try {
         if (auto old = saves_to_move(opt.root, opt.save)) {
             std::wstring ask = L"Copy your saves to the new save folder?\n\nFrom: " + old->wstring() + L"\nTo: " + save;
@@ -295,7 +304,7 @@ HWND add(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int
 }
 
 // Layout in 96-dpi units; the client area is kWidth x kHeight.
-constexpr int kWidth = 600, kHeight = 330, kMargin = 12, kButton = 90;
+constexpr int kWidth = 600, kHeight = 386, kMargin = 12, kButton = 90;
 
 void create_controls() {
     const int edit_w = kWidth - 2 * kMargin - kButton - 6, right = kWidth - kMargin - kButton;
@@ -305,12 +314,15 @@ void create_controls() {
     add(WC_STATICW, L"Save folder:", 0, kMargin, 68, edit_w, 18, 0);
     ui.save = add(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, kMargin, 88, edit_w, 24, kSaveEdit, WS_EX_CLIENTEDGE);
     HWND save_browse = add(WC_BUTTONW, L"Browse...", WS_TABSTOP, right, 87, kButton, 26, kSaveBrowse);
-    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 126,
+    add(WC_STATICW, L"Extra DLC folder (optional, e.g. shadPS4's addcont; empty for none):", 0, kMargin, 124, edit_w, 18, 0);
+    ui.dlc = add(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, kMargin, 144, edit_w, 24, kDlcEdit, WS_EX_CLIENTEDGE);
+    HWND dlc_browse = add(WC_BUTTONW, L"Browse...", WS_TABSTOP, right, 143, kButton, 26, kDlcBrowse);
+    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 182,
                  kWidth - 2 * kMargin, 150, kLog, WS_EX_CLIENTEDGE);
-    ui.play = add(WC_BUTTONW, L"Play Game", WS_TABSTOP, right - 2 * (kButton + 6), 290, kButton, 28, kPlay);
-    HWND install = add(WC_BUTTONW, L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, right - kButton - 6, 290, kButton, 28, IDOK);
-    HWND exit = add(WC_BUTTONW, L"Exit", WS_TABSTOP, right, 290, kButton, 28, IDCANCEL);
-    ui.inputs = {ui.game, game_browse, ui.save, save_browse, install, exit};
+    ui.play = add(WC_BUTTONW, L"Play Game", WS_TABSTOP, right - 2 * (kButton + 6), 346, kButton, 28, kPlay);
+    HWND install = add(WC_BUTTONW, L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, right - kButton - 6, 346, kButton, 28, IDOK);
+    HWND exit = add(WC_BUTTONW, L"Exit", WS_TABSTOP, right, 346, kButton, 28, IDCANCEL);
+    ui.inputs = {ui.game, game_browse, ui.save, save_browse, ui.dlc, dlc_browse, install, exit};
     set_busy(false);
 
     // Start from what the last install chose (paths.ini here, else the per-user copy), else an empty
@@ -324,6 +336,8 @@ void create_controls() {
     fs::path save = paths ? paths->save : setup::default_save();
     SetWindowTextW(ui.game, game.c_str());
     SetWindowTextW(ui.save, save.c_str());
+    if (paths)
+        SetWindowTextW(ui.dlc, paths->dlc.c_str());
     append_log(setup::ready(ui.root) ? L"The game is set up. Press Play Game, or pick new folders and press Install."
                : paths              ? L"This version isn't set up yet. Press Install."
                                     : L"Pick the folders, then press Install.");
@@ -348,6 +362,9 @@ LRESULT CALLBACK wnd_proc(HWND wnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case kSaveBrowse:
             browse(ui.save, L"Select the save folder");
+            return 0;
+        case kDlcBrowse:
+            browse(ui.dlc, L"Select a folder of DLC (e.g. shadPS4's addcont)");
             return 0;
         }
         break;

@@ -81,7 +81,11 @@ runtime already implements) and appends the matches to `src/import_names.inc`.
 
 `theatrhythm-setup.exe` (`setup/`) runs `prepare/run.py prepare` into `game/` beside it, rewrites the
 game's instructions for this CPU if needed, writes `settings.ini` from the template when there is
-none, and writes `paths.ini` with the game and save folders. No release contains a save folder, so
+none, and writes `paths.ini` with the game and save folders and, when one is chosen, `dlc=`: an
+extra folder of add-ons. The launcher passes it as `--dlc` (`THEATRHYTHM_DLC_DIR` overrides it), and
+`src/runtime_content.c` lists the folders in `<save>/addcont/` and then those in the extra folder
+(its `<TITLE_ID>/` subfolder when it has one, as shadPS4's `addcont` does) whose label the save
+folder lacks. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
 window: `theatrhythm-setup.exe --help`.

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 // The install itself, in the release folder the setup exe sits in (tools/package.py): prepares the game
-// image from the player's dump with prepare/run.py, and writes paths.ini (the dump and the save folder,
-// read by src/launch.c). The dump is only ever read. Windows (main.cpp) and Linux (main_linux.cpp)
+// image from the player's dump with prepare/run.py, and writes paths.ini (the dump, the save folder and
+// an optional extra DLC folder, read by src/launch.c). The dump is only ever read. Windows (main.cpp) and Linux (main_linux.cpp)
 // share it.
 
 #include <filesystem>
@@ -23,11 +23,13 @@ struct Options {
     std::filesystem::path game; // the dump folder or its eboot.bin
     std::filesystem::path save; // saves and the launch log (run.py's --user)
     std::optional<std::filesystem::path> copy_saves_from; // the old save folder, whose saves go to `save`
+    std::filesystem::path dlc; // optional: one more folder of DLC (e.g. shadPS4's addcont); empty for none
 };
 
 // The folders a release folder's paths.ini names.
 struct Paths {
     std::filesystem::path game, save;
+    std::filesystem::path dlc; // empty when paths.ini names none
 };
 
 // Save data in a save folder (what the runtime keeps there apart from the log).
