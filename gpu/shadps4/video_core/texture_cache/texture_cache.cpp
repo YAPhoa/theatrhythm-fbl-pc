@@ -696,9 +696,13 @@ void TextureCache::InvalidateMemoryFromGPU(VAddr address, size_t max_size) {
     ResolveReadbacks(address, max_size, true, ReadbackSource::GpuPartialWrite);
     std::scoped_lock lock{mutex};
     ForEachImageInRegion(address, max_size, [&](ImageId image_id, Image& image) {
-        // Only consider images that match base address.
-        // TODO: Maybe also consider subresources
-        if (image.info.guest_address != address) {
+        // theatrhythm: upstream only considers images at the write's base address. The game's
+        // compute shaders write stage textures as storage buffers over page runs of its texture
+        // pool (0x1019239000 over a texture at 0x1019238d00), so textures packed there kept the
+        // previous stage's texels until a restart (washed-out stages). A texture the GPU never
+        // wrote is invalidated by any overlapping write; images the GPU drew keep the base rule.
+        if (image.info.guest_address != address &&
+            (True(image.flags & ImageFlagBits::GpuModified) || !image.Overlaps(address, max_size))) {
             return;
         }
         // Ensure image is reuploaded when accessed again.
