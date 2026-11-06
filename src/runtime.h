@@ -89,6 +89,8 @@ int runtime_dlc_bonus_install(unsigned char *image, uint64_t module_base, unsign
 int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int display_page);
 /* The text the exit prompt shows for an I2 term while it is open, else NULL (translation hook). */
 const char *runtime_exit_prompt_translation(const char *term);
+/* 1 while the exit prompt's window is open (the pad turns Options into Circle there: No). */
+int runtime_exit_prompt_open(void);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);

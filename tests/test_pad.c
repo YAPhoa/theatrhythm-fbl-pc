@@ -12,6 +12,8 @@ int theatrhythm_gpu_overlay_captures_input(void) { return 0; }
 int theatrhythm_gpu_vibration_percent(void) { return 100; }
 const char *theatrhythm_pad_map(int keyboard) { (void)keyboard; return ""; }
 void runtime_button_icons_input(int set) { (void)set; }
+static int prompt_open;
+int runtime_exit_prompt_open(void) { return prompt_open; }
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *name) {
     (void)table; (void)count; (void)name;
     return 0;
@@ -91,10 +93,40 @@ static void test_pad_map(void) {
     pad_map=saved;
 }
 
+/* While the exit prompt is open, Options (or Circle) plays Left, then Cross (No); the key stays
+ * hidden until released, also after the window closed. Outside the prompt it passes as it is. */
+static void test_exit_prompt_no(void) {
+    PadData d;
+    host_sample=(PadData){.connected=1,.connected_count=1,.buttons=BTN_OPTIONS|BTN_UP};
+    sample(&d);
+    assert(d.buttons==(BTN_OPTIONS|BTN_UP));
+    prompt_open=1;
+    sample(&d);
+    assert(d.buttons==BTN_LEFT);
+    SDL_Delay(120); sample(&d);
+    assert(d.buttons==0);
+    SDL_Delay(80); sample(&d);
+    assert(d.buttons==BTN_CROSS);
+    prompt_open=0; /* the window took the Cross */
+    sample(&d);
+    assert(d.buttons==BTN_UP); /* Options still held: hidden; Up goes on */
+    host_sample.buttons=BTN_UP|BTN_CROSS;
+    sample(&d);
+    assert(d.buttons==BTN_UP); /* a Cross held then too, until all are released */
+    host_sample.buttons=BTN_UP;
+    sample(&d);
+    assert(d.buttons==BTN_UP);
+    host_sample.buttons=BTN_CIRCLE; /* Circle outside the prompt is Circle */
+    sample(&d);
+    assert(d.buttons==BTN_CIRCLE);
+    host_sample=(PadData){0};
+}
+
 int main(void) {
     test_default_keyboard();
     test_key_map();
     test_pad_map();
+    test_exit_prompt_no();
     puts("pad tests passed");
     return 0;
 }
