@@ -706,11 +706,20 @@ void VideoOutDriver::PresentThread(std::stop_token token) {
     constexpr u32 unlimited = std::numeric_limits<u32>::max();
     const bool measured_limit = std::getenv("THEATRHYTHM_FPS_LIMIT") != nullptr;
     const int vblank_hz = int(EmulatorSettings.GetVblankFrequency());
+    // theatrhythm: fps_limit 0 on a display faster than the vblank (120 Hz against the default 60)
+    // is a limit at the display's rate, so "Off" follows the display instead of the 60 Hz vblank
+    // (issue #9); GetFramePeriod snaps it to the exact rate. The vblank the game sees stays at
+    // its rate. A display at the vblank rate or slower keeps one flip per vblank.
+    const double display_hz = TheatrhythmWindowRefreshRate();
+    const u32 display_limit = display_hz > vblank_hz + 0.5 ? u32(std::lround(display_hz)) : 0;
     const auto current_limit = [&] {
         if (measured_limit) {
             return EmulatorSettings.GetFrameLimit();
         }
         const int limit = TheatrhythmSettings::Get().fps_limit.load();
+        if (limit == 0) {
+            return display_limit;
+        }
         return limit == TheatrhythmGraphics::FpsUnlimited ? unlimited : u32(limit);
     };
     const auto period_of = [&](u32 limit) {

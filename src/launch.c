@@ -5,6 +5,7 @@
  *     game=<the dump: eboot.bin, sce_module, sce_sys, Media>
  *     save=<saves and the launch log: what run.py calls --user>
  *     cache=<optional: shader caches; by default the folder every copy shares, as run.py's>
+ * Without paths.ini here, the per-user copy the setup also writes is read (user_paths_ini).
  * Narrow strings are UTF-8 (Windows: the manifest's activeCodePage). */
 #include "launch.h"
 
@@ -82,8 +83,24 @@ static void shared_cache(char *out) {
     else snprintf(out, PATH_CHARS, "%s" SEP "cache", exe_dir);
 }
 
+/* The per-user copy of paths.ini the setup also writes, so a release unpacked into a new folder
+ * finds the folders the last setup chose: %APPDATA%\Theatrhythm Final Bar Line\paths.ini, or
+ * $XDG_CONFIG_HOME/theatrhythm-fbl/paths.ini (~/.config when unset). "" when neither is known. */
+static void user_paths_ini(char *out) {
+    out[0] = 0;
+#ifdef _WIN32
+    const char *appdata = getenv("APPDATA");
+    if (appdata && appdata[0]) snprintf(out, PATH_CHARS, "%s\\Theatrhythm Final Bar Line\\paths.ini", appdata);
+#else
+    const char *xdg = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    if (xdg && xdg[0]) snprintf(out, PATH_CHARS, "%s/theatrhythm-fbl/paths.ini", xdg);
+    else if (home && home[0]) snprintf(out, PATH_CHARS, "%s/.config/theatrhythm-fbl/paths.ini", home);
+#endif
+}
+
 /* game=, save= and cache= of paths.ini; 1 when game and save are there. */
 static int read_paths(const char *ini) {
+    game[0] = save[0] = cache[0] = 0;
     FILE *f = fopen(ini, "rb");
     if (!f) return 0;
     char line[PATH_CHARS + 64];
@@ -180,9 +197,15 @@ int launch_from_paths_ini(int *argc, char ***argv) {
     char ini[PATH_CHARS], message[3 * PATH_CHARS];
     snprintf(ini, sizeof ini, "%s" SEP "paths.ini", exe_dir);
     if (!read_paths(ini)) {
-        complain("The game is not set up yet.\n\n" RUN_SETUP);
-        return 1;
+        user_paths_ini(ini);
+        if (!ini[0] || !read_paths(ini)) {
+            complain("The game is not set up yet.\n\n" RUN_SETUP);
+            return 1;
+        }
     }
+    /* THEATRHYTHM_SAVE_DIR overrides save= (a relative one is relative to the exe's folder). */
+    const char *save_override = getenv("THEATRHYTHM_SAVE_DIR");
+    if (save_override && save_override[0]) set_path(save, save_override);
     snprintf(boot, sizeof boot, "%s" SEP "game" SEP "boot-linked.bin", exe_dir);
     snprintf(profile, sizeof profile, "%s" SEP "game" SEP "content.bin", exe_dir);
     snprintf(isa, sizeof isa, "%s" SEP "game" SEP "isa-rewrite.bin", exe_dir);

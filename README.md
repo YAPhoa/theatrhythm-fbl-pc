@@ -113,6 +113,11 @@ Shader caches are kept in `~/.cache/theatrhythm-fbl`.
 Unzip (on Linux, extract) the new release over the old folder, then run the setup once more (the
 game asks you to). Your folders, saves and settings are kept.
 
+Setup also remembers your folders outside the release, in `%APPDATA%\Theatrhythm Final Bar Line\paths.ini`
+(Linux: `~/.config/theatrhythm-fbl/paths.ini`). A release unzipped into a new folder starts from
+them, so setup only needs **Install**. To use another save folder without running setup, set the
+environment variable `THEATRHYTHM_SAVE_DIR` to it; it wins over the one setup chose.
+
 ## Settings
 
 Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,
@@ -141,7 +146,7 @@ trade-off; set them in `settings.ini` or the F10 panel.
 | --- | --- | --- |
 | `vsync` | `1` (default), `0` | Off shows the newest finished frame at each refresh: less input delay, still no tearing. Some drivers (NVIDIA) hold it to twice the refresh rate. |
 | `tearing` | `0` (default), `1` | With `vsync=0`, shows each frame the moment it is done (Vulkan Immediate). The least input delay and no frame rate ceiling, but the picture can tear. F10 shows it as VSync "Off, tearing allowed". |
-| `fps_limit` | `0` (default), `30` to `240`, `unlimited` | `0` is one frame per refresh. A number caps the frame rate (with `vsync=0`). `unlimited` removes the cap: hundreds of frames a second with `tearing=1`, so the GPU runs flat out. |
+| `fps_limit` | `0` (default), `30` to `240`, `unlimited` | `0` follows the display: one frame per refresh (120 a second on a 120 Hz monitor). A number caps the frame rate (with `vsync=0`). `unlimited` removes the cap: hundreds of frames a second with `tearing=1`, so the GPU runs flat out. |
 | `frames_queued` | `1` (default), `2`, `0` | Frames the CPU may prepare ahead of the GPU: 1 is the lowest latency, more can smooth out a slow GPU (`0` unbounded). |
 | `anisotropy` | `0` (default), `2` to `16` | Sharper textures seen at an angle. Applies at the next start. |
 

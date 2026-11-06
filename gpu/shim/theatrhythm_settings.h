@@ -90,12 +90,17 @@ struct Values {
 
 Values& Get();
 
-/// Reads the file, then the environment overrides. Called once at start.
+/// Reads the file, then the environment overrides. Called once at start. When the save folder has
+/// no settings.ini yet (Path()), the default file is copied there so it always holds one.
 void Load();
 
 /// Writes the display keys (display_mode, monitor, window, vsync, tearing, fps_limit, frames_queued,
 /// anisotropy, render_resolution) into Path() in place: their lines are replaced, missing ones
 /// appended, the rest kept (from the default file until Path() exists).
 void SaveDisplay();
+
+/// SaveDisplay() when a display key differs from what Path() holds: called as the game closes, so
+/// a change made on a page that was still open is not lost.
+void SaveDisplayIfChanged();
 
 } // namespace TheatrhythmSettings

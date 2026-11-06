@@ -290,6 +290,7 @@ extern "C" int theatrhythm_gpu_init(const TheatrhythmGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+        TheatrhythmSettings::SaveDisplayIfChanged();
         runtime_report();
         std::fflush(stdout);
         std::_Exit(0);

@@ -32,7 +32,7 @@ constexpr char kTitle[] = "Theatrhythm Final Bar Line setup";
 
 // The old save folder to copy from when the save folder changes and only the old one has saves.
 std::optional<fs::path> saves_to_move(const fs::path& root, const fs::path& save) {
-    auto old = setup::read_paths(root);
+    auto old = setup::remembered_paths(root);
     if (!old || setup::same_path(old->save, save) || !setup::has_saves(old->save) || setup::has_saves(save))
         return std::nullopt;
     return old->save;
@@ -92,7 +92,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         setup::Options opt;
         opt.root = setup::exe_folder();
         opt.game = setup::path_of(game);
-        auto old = setup::read_paths(opt.root);
+        auto old = setup::remembered_paths(opt.root);
         opt.save = !save.empty() ? setup::path_of(save) : old ? old->save : setup::default_save();
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
@@ -258,7 +258,7 @@ int run_asking(Asker& ask) {
     fs::path root = setup::exe_folder();
     std::optional<setup::Paths> paths;
     try {
-        paths = setup::read_paths(root);
+        paths = setup::remembered_paths(root);
     } catch (const setup::Error&) {
     }
     if (setup::ready(root)) {

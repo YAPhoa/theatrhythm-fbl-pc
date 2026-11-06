@@ -30,7 +30,7 @@ constexpr wchar_t kTitle[] = L"Theatrhythm Final Bar Line setup";
 
 // The old save folder to copy from when the save folder changes and only the old one has saves.
 std::optional<fs::path> saves_to_move(const fs::path& root, const fs::path& save) {
-    auto old = setup::read_paths(root);
+    auto old = setup::remembered_paths(root);
     if (!old || setup::same_path(old->save, save) || !setup::has_saves(old->save) || setup::has_saves(save))
         return std::nullopt;
     return old->save;
@@ -110,7 +110,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         setup::Options opt;
         opt.root = setup::exe_folder();
         opt.game = game;
-        auto old = setup::read_paths(opt.root);
+        auto old = setup::remembered_paths(opt.root);
         opt.save = !save.empty() ? fs::path(save) : old ? old->save : setup::default_save();
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
@@ -313,10 +313,11 @@ void create_controls() {
     ui.inputs = {ui.game, game_browse, ui.save, save_browse, install, exit};
     set_busy(false);
 
-    // Start from what the last install chose (paths.ini), else an empty game folder and save\ here.
+    // Start from what the last install chose (paths.ini here, else the per-user copy), else an empty
+    // game folder and save\ here.
     std::optional<setup::Paths> paths;
     try {
-        paths = setup::read_paths(ui.root);
+        paths = setup::remembered_paths(ui.root);
     } catch (const setup::Error&) {
     }
     fs::path game = paths ? paths->game : fs::path();

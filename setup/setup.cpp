@@ -425,10 +425,22 @@ fs::path game_folder(const fs::path& path) {
     return fs::is_regular_file(p, ec) ? p.parent_path() : p;
 }
 
-std::optional<Paths> read_paths(const fs::path& root) {
+fs::path user_paths_ini() {
+#ifdef _WIN32
+    const wchar_t* appdata = _wgetenv(L"APPDATA");
+    return appdata && appdata[0] ? fs::path(appdata) / L"Theatrhythm Final Bar Line" / L"paths.ini" : fs::path();
+#else
+    const char* config = std::getenv("XDG_CONFIG_HOME");
+    return (config && config[0] ? fs::path(config) : home() / ".config") / "theatrhythm-fbl" / "paths.ini";
+#endif
+}
+
+namespace {
+
+// game= and save= of `ini`; relative values are relative to `root`.
+std::optional<Paths> read_paths_file(const fs::path& ini, const fs::path& root) {
     std::error_code ec;
-    fs::path ini = root / L"paths.ini";
-    if (!fs::is_regular_file(ini, ec))
+    if (ini.empty() || !fs::is_regular_file(ini, ec))
         return std::nullopt;
     std::string text = read_text(ini);
     if (text.rfind("\xEF\xBB\xBF", 0) == 0)
@@ -453,6 +465,22 @@ std::optional<Paths> read_paths(const fs::path& root) {
     if (paths.game.empty() || paths.save.empty())
         return std::nullopt;
     return paths;
+}
+
+} // namespace
+
+std::optional<Paths> read_paths(const fs::path& root) {
+    return read_paths_file(root / L"paths.ini", root);
+}
+
+std::optional<Paths> remembered_paths(const fs::path& root) {
+    if (auto paths = read_paths(root))
+        return paths;
+    try {
+        return read_paths_file(user_paths_ini(), root);
+    } catch (const Error&) {
+        return std::nullopt;
+    }
 }
 
 fs::path default_save() {
@@ -554,6 +582,16 @@ fs::path install(const Options& opt, const Log& log) {
     }
     write_paths(root / L"paths.ini", game, save);
     log(L"wrote    paths.ini (game " + text(game) + L", save " + text(save) + L")");
+    // The per-user copy, for the next release unpacked elsewhere; the game runs without it.
+    if (fs::path user = user_paths_ini(); !user.empty()) {
+        try {
+            fs::create_directories(user.parent_path(), ec);
+            write_paths(user, clean(game), clean(save));
+            log(L"wrote    " + text(user));
+        } catch (const Error& e) {
+            log(L"skipped  " + text(user) + L" (" + e.message + L")");
+        }
+    }
     return exe;
 }
 
