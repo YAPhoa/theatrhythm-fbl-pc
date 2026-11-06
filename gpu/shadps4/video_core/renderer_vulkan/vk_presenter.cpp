@@ -39,6 +39,7 @@
 #include <span>
 #include <sstream>
 #include <system_error>
+#include <thread>
 #include <vector>
 #include <vk_mem_alloc.h>
 #ifdef MemoryBarrier
@@ -372,8 +373,25 @@ Presenter::Presenter(Frontend::WindowSDL& window_, AmdGpu::Liverpool* liverpool_
 
     pp_pass.Create(device, swapchain.GetSurfaceFormat().format);
     TheatrhythmOverlay::Init(instance, swapchain.GetSurfaceFormat().format, num_images);
-    // theatrhythm: the window was created hidden; from here on it gets frames (the start-up picture).
+    // theatrhythm: the window was created hidden. Until the game's first frame, a while later,
+    // nothing else draws into it, so it gets the start-up picture as soon as it is shown (cloaked on
+    // Windows, at its final size) and is revealed with the picture already in it. Drawn once more
+    // when revealed: DWM may drop what a cloaked window showed and wait for its next frame.
+    const auto wait_for = [](const auto& done) {
+        for (int i = 0; i < 500 && !done(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    };
     window.Show();
+    wait_for([&] { return window.IsShown(); });
+    for (int i = 0; i < 2; ++i) {
+        PresentLoadingFrame();
+    }
+    window.Reveal();
+    wait_for([&] { return window.IsRevealed(); });
+    for (int i = 0; i < 2; ++i) {
+        PresentLoadingFrame();
+    }
 
     const bool binary_cache = EmulatorSettingsImpl::Flag("THEATRHYTHM_PIPELINE_BINARIES", true) &&
                               EmulatorSettings.IsPipelineCacheEnabled();

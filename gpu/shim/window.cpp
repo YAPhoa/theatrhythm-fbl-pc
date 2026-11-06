@@ -8,6 +8,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <SDL3/SDL.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <dwmapi.h>
+#endif
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "sdl_window.h"
@@ -250,12 +254,45 @@ void WindowSDL::UpdateTextTitle() {
     TheatrhythmOverlay::SetTextEntry(text_active, text_prompt, text);
 }
 
+#ifdef _WIN32
+// DWM cloaking: a cloaked window is shown, sized and drawn into, but not composed on screen.
+bool WindowSDL::Cloak(bool on) {
+    const BOOL value = on;
+    return window_info.type == WindowSystemType::Windows &&
+           SUCCEEDED(DwmSetWindowAttribute(static_cast<HWND>(window_info.render_surface), DWMWA_CLOAK,
+                                           &value, sizeof(value)));
+}
+#endif
+
 bool WindowSDL::PollEvents() {
     if (!shown && show_requested.load(std::memory_order_acquire)) {
         shown = true;
+#ifdef _WIN32
+        // Shown cloaked: it takes its borderless/fullscreen size and the presenter draws the start-up
+        // picture into it before anyone sees it, where a plain show shows it black for a moment.
+        cloaked = Cloak(true);
+        shown_at = SDL_GetTicks();
+#endif
         SDL_ShowWindow(window);
         SDL_SyncWindow(window);
+        int w = 0, h = 0; // a window created hidden takes its borderless/fullscreen size only now
+        SDL_GetWindowSizeInPixels(window, &w, &h);
+        width = w;
+        height = h;
+        shown_done.store(true, std::memory_order_release);
+#ifdef _WIN32
+        if (!cloaked)
+#endif
+            revealed.store(true, std::memory_order_release);
     }
+#ifdef _WIN32
+    // Revealed once the presenter has drawn into it, or after a second whatever happened.
+    if (cloaked && (reveal_requested.load(std::memory_order_acquire) || SDL_GetTicks() - shown_at > 1000)) {
+        Cloak(false);
+        cloaked = false;
+        revealed.store(true, std::memory_order_release);
+    }
+#endif
     {
         std::scoped_lock lock{text_mutex};
         if (text_requested) { // SDL text input must be toggled from the window thread
