@@ -516,6 +516,16 @@ extern "C" int theatrhythm_gpu_text_input_begin(const char* initial, const char*
     return 1;
 }
 
+extern "C" int theatrhythm_gpu_text_input_begin_silent(const char* initial) {
+    if (!g_window) return 0;
+    g_window->BeginTextInput(initial ? initial : "", "", true);
+    return 1;
+}
+
+extern "C" void theatrhythm_gpu_text_input_end(void) {
+    if (g_window) g_window->EndTextInput();
+}
+
 extern "C" int theatrhythm_gpu_choice_begin(const char* title, const char* const* items, const char* const* images,
                                     int count, int focus) {
     if (!g_window || count <= 0) return 0;

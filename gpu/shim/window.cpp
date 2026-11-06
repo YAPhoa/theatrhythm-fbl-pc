@@ -233,12 +233,20 @@ WindowSDL::~WindowSDL() {
     SDL_DestroyWindow(window);
 }
 
-void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt) {
+void WindowSDL::BeginTextInput(const std::string& initial, const std::string& prompt, bool silent) {
     std::scoped_lock lock{text_mutex};
     text = initial;
     text_prompt = prompt;
+    text_silent = silent;
     text_state = 0;
     text_requested = true;
+    text_end_requested = false;
+}
+
+void WindowSDL::EndTextInput() {
+    std::scoped_lock lock{text_mutex};
+    text_requested = false;
+    text_end_requested = true;
 }
 
 int WindowSDL::PollTextInput(std::string& out) {
@@ -248,6 +256,9 @@ int WindowSDL::PollTextInput(std::string& out) {
 }
 
 void WindowSDL::UpdateTextTitle() {
+    if (text_silent) {
+        return; // the game shows it
+    }
     const std::string title = text_active ? base_title + " \u2014 " + text_prompt + ": " + text + "_  (Enter = OK, Esc = cancel)"
                                           : base_title;
     SDL_SetWindowTitle(window, title.c_str());
@@ -263,6 +274,24 @@ bool WindowSDL::Cloak(bool on) {
                                            &value, sizeof(value)));
 }
 #endif
+
+// Steam's on-screen keyboard, in games it started in Big Picture (its hint says so). SDL opens it from
+// its X11 driver only, so on Windows it is opened here, with the same links.
+static void SteamKeyboard(bool open) {
+#ifdef _WIN32
+    if (SDL_GetHintBoolean(SDL_HINT_ENABLE_STEAM_SCREEN_KEYBOARD, false)) {
+        SDL_OpenURL(open ? "steam://open/keyboard?XPosition=0&YPosition=0&Width=0&Height=0&Mode=0"
+                         : "steam://close/keyboard");
+    }
+#else
+    (void)open;
+#endif
+}
+
+static void StopText(SDL_Window* window) {
+    SDL_StopTextInput(window);
+    SteamKeyboard(false);
+}
 
 bool WindowSDL::PollEvents() {
     if (!shown && show_requested.load(std::memory_order_acquire)) {
@@ -299,7 +328,15 @@ bool WindowSDL::PollEvents() {
             text_requested = false;
             text_active = true;
             SDL_StartTextInput(window);
+            SteamKeyboard(true);
             UpdateTextTitle();
+        }
+        if (text_end_requested) {
+            text_end_requested = false;
+            if (text_active) {
+                text_active = false;
+                StopText(window);
+            }
         }
     }
     if (const int mode = TheatrhythmSettings::Get().display_mode; mode != display_mode) {
@@ -326,13 +363,13 @@ bool WindowSDL::PollEvents() {
             } else if (event.key.key == SDLK_RETURN || event.key.key == SDLK_KP_ENTER || event.key.key == SDLK_ESCAPE) {
                 text_state = event.key.key == SDLK_ESCAPE ? 2 : 1;
                 text_active = false;
-                SDL_StopTextInput(window);
+                StopText(window);
             }
             UpdateTextTitle();
             continue;
         }
         // The controller finishes the text dialog too: Cross (A) accepts, Circle (B) cancels (or swapped).
-        if (text_active && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
+        if (text_active && !text_silent && event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN &&
             (event.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH ||
              event.gbutton.button == SDL_GAMEPAD_BUTTON_EAST)) {
             std::scoped_lock lock{text_mutex};
@@ -340,7 +377,7 @@ bool WindowSDL::PollEvents() {
             const u8 confirm_btn = swapped ? SDL_GAMEPAD_BUTTON_EAST : SDL_GAMEPAD_BUTTON_SOUTH;
             text_state = event.gbutton.button == confirm_btn ? 1 : 2;
             text_active = false;
-            SDL_StopTextInput(window);
+            StopText(window);
             UpdateTextTitle();
             continue;
         }

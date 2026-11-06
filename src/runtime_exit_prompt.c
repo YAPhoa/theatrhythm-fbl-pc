@@ -17,11 +17,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The registers a hook sees (the stub's frame): the six argument registers, and what the game
- * function returns when the hook returns 1. */
-typedef struct { uint64_t rdi, rsi, rdx, rcx, r8, r9, rax, rdx_out; } HookRegs;
-typedef int (ABI *HookFn)(HookRegs *regs);
-
 enum { H_LIFECYCLE, H_WINDOW, H_STAGE, H_REACTION, H_RESUME, C_OPEN, C_OPENABLE, C_SYSTEM_PAUSE, SITES };
 static const GameSite sites[SITES]={
     {"Gummi.Device.PS4.ProcessLifecyclePS4::Update", 0, 0, 0,

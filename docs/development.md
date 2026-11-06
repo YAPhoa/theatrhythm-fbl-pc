@@ -256,6 +256,24 @@ it, so the number was blank on any GPU. `src/runtime_party_label.c` sets that la
 before its text is set; this is separate from the party limit patch. Its sites are found by name too,
 also checked only on 1.00's code.
 
+Party sets can have names on the Party Edit screen (`src/runtime_party_names.c`). The number in "Set N" is
+a `LocalizedText` (a uGUI `Text`, not TextMeshPro) inside the banner's `Content`, which lays out its
+children in a row; a copy of it under `Set_Ribbon` shows the name, with a term of its own that the
+translation hook in `runtime_display_page.c` answers. The screen's objects outlive it, so the copy is
+destroyed in `PartyEditMain::End`. L2 sends the screen nothing, so it is polled from `Layer::Update` while
+the set grid has the focus, and its guide on the bottom bar is a `HelpBarData` written into an empty slot of
+the Optimize guide's table row as `HelpBar::Draw` starts. L2 calls the game's opener of the Optimize window,
+and while that window is up the hook swaps its message and button terms; the message isn't a uGUI `Text`,
+so typing redraws it by translating its term again (`SetTextByTermInfo`). The answer is taken in the
+window's callback, so Optimize never runs. The game has no text entry of its own (on PS4, the system
+dialog), so typing is SDL text input with nothing drawn (`theatrhythm_gpu_text_input_begin_silent`), which
+opens Steam's on-screen keyboard when Steam's hint asks for it: SDL 3.4.12 and later on X11, and
+`SteamKeyboard` in `window.cpp` on Windows, where SDL has no such code. `runtime_pad_text_mode` keeps the keyboard from
+pressing buttons meanwhile. `THEATRHYTHM_IME_TEXT` sets the starting text for scripted runs. Names live in
+`party_names.txt` in the save folder, not in the game's save. Its sites are found by name too, also
+checked only on 1.00's code. `SetTextByTermInfo`'s pattern starts after the 7 bytes the Display page's
+hook moves, so it matches with that hook in place.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).

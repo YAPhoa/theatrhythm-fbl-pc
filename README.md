@@ -174,6 +174,13 @@ are saved to `settings.ini` in your save folder when you leave the page. **F10**
 settings in a panel with a few more (monitor, frames queued, anisotropic filtering, and the
 advanced choices below).
 
+On the **Edit party** screen, **L2** (E on the keyboard; the bar at the bottom shows it as "Rename set")
+names the set you're looking at, in one of the game's own windows: type the name, then press Enter or
+choose OK (Esc or Cancel keeps the old one; an
+empty name clears it). Steam's on-screen keyboard opens by itself when Steam started the game in Big Picture or
+Gaming Mode. The name shows above the set's number, on that screen only, up to 32 characters, in letters
+the game's current font has. Names are kept in `party_names.txt` in your save folder.
+
 **Render resolution** is 4K by default (`render_resolution=4k` in `settings.ini`): the game renders at
 3840x2160, as on a PS4 Pro, and the picture is filtered down to your screen (the desktop resolution,
 as the game opens borderless by default), so it's sharper on any screen. On a weaker GPU set it to

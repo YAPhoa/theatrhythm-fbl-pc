@@ -311,6 +311,8 @@ static bool stick_pushed(const PadData *d) {
     return false;
 }
 
+static int text_mode; /* runtime_pad_text_mode: the keyboard types, and presses no buttons */
+
 /* Host thread: the gamepad, keyboard and mouse as one PadData (no timestamp). */
 static void host_read(PadData *d, SDL_Gamepad *g, uint8_t connected_count) {
     memset(d,0,sizeof(*d));
@@ -347,7 +349,8 @@ static void host_read(PadData *d, SDL_Gamepad *g, uint8_t connected_count) {
     }
     /* The keyboard and mouse work with or without a gamepad: their buttons add to the pad's, and a
      * stick follows the keys only while one of them is held. */
-    if (k && sample_keyboard(d,k,SDL_GetMouseState(NULL,NULL))) runtime_button_icons_input(BUTTON_ICONS_KEYBOARD);
+    if (k && !__atomic_load_n(&text_mode,__ATOMIC_RELAXED) && sample_keyboard(d,k,SDL_GetMouseState(NULL,NULL)))
+        runtime_button_icons_input(BUTTON_ICONS_KEYBOARD);
 }
 
 /* Host thread: samples every millisecond (SDL_DelayNS waits on a high resolution timer) and
@@ -529,6 +532,14 @@ static void exit_prompt_no(PadData *d) {
 /* After a dialog closes, buttons still held (the Cross that accepted a name) stay hidden until
  * released: the game would take them as a new press. */
 static int hold_after_capture;
+static uint32_t buttons_seen;  /* runtime_pad_held */
+static uint64_t tap_until;     /* runtime_pad_tap: Cross is pressed until then */
+uint32_t runtime_pad_held(void) { return __atomic_load_n(&buttons_seen,__ATOMIC_RELAXED); }
+void runtime_pad_text_mode(int on) {
+    __atomic_store_n(&text_mode,on,__ATOMIC_RELAXED);
+    if (!on) hold_after_capture=1; /* the Enter or Esc that ended it is still down */
+}
+void runtime_pad_tap(void) { tap_until=now_us()+100000; }
 static void sample(PadData *d) {
     pthread_mutex_lock(&host_lock);
     *d=host_sample;
@@ -555,6 +566,8 @@ static void sample(PadData *d) {
         if (d->buttons) d->buttons=0;
         else hold_after_capture=0;
     }
+    if (d->timestamp<tap_until) d->buttons|=BTN_CROSS;
+    __atomic_store_n(&buttons_seen,d->buttons,__ATOMIC_RELAXED);
 }
 
 static void start_host_thread(void) {

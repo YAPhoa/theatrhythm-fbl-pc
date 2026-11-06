@@ -44,7 +44,10 @@ public:
     /// True once the window can be seen (after Reveal on Windows, as soon as it is shown elsewhere).
     bool IsRevealed() const { return revealed.load(std::memory_order_acquire); }
     /// Keyboard text entry for the system IME dialog; typed text shows in the title bar.
-    void BeginTextInput(const std::string& initial, const std::string& prompt);
+    /// `silent`: nothing is drawn and pads don't finish it, for text the game itself shows.
+    void BeginTextInput(const std::string& initial, const std::string& prompt, bool silent = false);
+    /// Stops text entry from the caller's side.
+    void EndTextInput();
     /// 0 while typing, 1 confirmed (Enter), 2 cancelled (Escape); text is UTF-8.
     int PollTextInput(std::string& text);
 
@@ -60,7 +63,7 @@ private:
     u64 shown_at{};
 #endif
     std::mutex text_mutex;
-    bool text_requested{}, text_active{};
+    bool text_requested{}, text_active{}, text_silent{}, text_end_requested{};
     int display_mode = -1; ///< applied TheatrhythmSettings display mode (window thread)
     void ApplyDisplayMode(int mode);
     int monitor = -1; ///< applied TheatrhythmSettings monitor (window thread)
