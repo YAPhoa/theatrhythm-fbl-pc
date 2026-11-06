@@ -17,6 +17,8 @@
 #endif
 
 uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *nid) { (void)table; (void)count; (void)nid; return 0; }
+void theatrhythm_gpu_text_input_end(void) {}
+int theatrhythm_gpu_text_input_begin_silent(const char *text) { (void)text; return 0; }
 int theatrhythm_gpu_text_input_begin(const char *text, const char *prompt) { (void)text; (void)prompt; return 0; }
 int theatrhythm_gpu_text_input_poll(char *text, uint64_t size) { (void)text; (void)size; return 0; }
 static int stub_menu_confirm_swap = 0;

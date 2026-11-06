@@ -672,7 +672,7 @@ static size_t utf16_to_utf8(const uint16_t *in, size_t limit, char *out, size_t 
     }
     out[n]=0; return n;
 }
-static void utf8_to_utf16(const char *in, uint16_t *out, uint32_t max) {
+void runtime_utf8_to_utf16(const char *in, uint16_t *out, uint32_t max) {
     uint32_t n=0;
     for (const unsigned char *p=(const unsigned char *)in; *p && n<max;) {
         uint32_t c; int extra;
@@ -686,7 +686,7 @@ static void utf8_to_utf16(const char *in, uint16_t *out, uint32_t max) {
     out[n<max ? n : max]=0;
 }
 static void ime_complete(int end_status, const char *text) {
-    if (!end_status && ime.buffer && ime.max_length) utf8_to_utf16(text,ime.buffer,ime.max_length);
+    if (!end_status && ime.buffer && ime.max_length) runtime_utf8_to_utf16(text,ime.buffer,ime.max_length);
     ime.end_status=end_status; ime.finished=1; ime.running=0;
     printf("Runtime: ImeDialog %s%s%s\n",end_status ? "cancelled" : "text: ",end_status ? "" : text,"");
 }

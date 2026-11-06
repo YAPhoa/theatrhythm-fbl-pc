@@ -29,6 +29,10 @@ void theatrhythm_gpu_dump_guest_writes(void *ucontext);
  * no window exists; poll returns 0 typing, 1 confirmed, 2 cancelled (UTF-8 text). */
 int theatrhythm_gpu_text_input_begin(const char *initial_utf8, const char *prompt_utf8);
 int theatrhythm_gpu_text_input_poll(char *out_utf8, uint64_t size);
+/* The same with nothing drawn and the game's input left alone: the game shows the text. Pads don't
+ * finish it; end stops it from the caller's side. */
+int theatrhythm_gpu_text_input_begin_silent(const char *initial_utf8);
+void theatrhythm_gpu_text_input_end(void);
 /* A list for the player to choose from, drawn over the game (save list). images: a PNG path per
  * item drawn beside it (NULL array or entry: none). begin: 0 when no window exists.
  * poll: -1 while open, -2 cancelled, else the chosen index. */
