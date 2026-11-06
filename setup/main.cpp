@@ -315,7 +315,7 @@ void create_controls() {
     add(WC_STATICW, L"Save folder:", 0, kMargin, 68, edit_w, 18, 0);
     ui.save = add(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, kMargin, 88, edit_w, 24, kSaveEdit, WS_EX_CLIENTEDGE);
     HWND save_browse = add(WC_BUTTONW, L"Browse...", WS_TABSTOP, right, 87, kButton, 26, kSaveBrowse);
-    ui.skip_opening = add(WC_BUTTONW, L"Skip the opening movie (start from the logo straight to the title screen)",
+    ui.skip_opening = add(WC_BUTTONW, L"Skip the opening movie (set skip_opening=0 in settings.ini to bring it back)",
                           WS_TABSTOP | BS_AUTOCHECKBOX, kMargin, 124, kWidth - 2 * kMargin, 22, kSkipOpening);
     ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 154,
                  kWidth - 2 * kMargin, 150, kLog, WS_EX_CLIENTEDGE);

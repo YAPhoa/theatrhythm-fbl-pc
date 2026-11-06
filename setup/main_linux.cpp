@@ -301,7 +301,7 @@ int run_asking(Asker& ask) {
     std::vector<std::wstring> answers = {L"Skip it", L"Play it"};
     if (!skipping)
         std::swap(answers[0], answers[1]);
-    int skip = ask.choose(L"Skip the opening movie at start (from the logo straight to the title screen)?", answers);
+    int skip = ask.choose(L"Skip the opening movie (set skip_opening=0 in settings.ini to bring it back)?", answers);
     if (skip < 0)
         return 1;
 
