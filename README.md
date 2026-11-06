@@ -169,9 +169,11 @@ taps a trigger and either stick slides, so each hand gets a stick and taps:
 | Tab, P | Options |
 | T | touchpad click |
 
-**F4** pauses the game anywhere, even mid-song, and F4 again carries on from the same moment: the
-music, the notes and every timer stop while "Paused" is on screen. It changes nothing in the game
-or its save. **F10** opens the Display Settings panel.
+**F4** asks "Exit the game?" in the game's own Yes/No window, with its sounds (No is selected
+first). During a song it pauses the song first, and No carries on from the same moment. Yes closes
+the game, after any save in progress is written. It doesn't open over another of the game's windows
+or during a scene change: a note says so. Alt+F4 still closes the game at once.
+**F10** opens the Display Settings panel.
 
 Keys are physical positions, so they're the same on AZERTY or QWERTZ keyboards. To change them,
 edit `key_map` and `pad_map` in `settings.ini`, e.g. `key_map=cross=G,cross=Mouse Left`: the first

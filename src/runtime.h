@@ -83,15 +83,14 @@ int runtime_field_walk_install(unsigned char *image, uint64_t module_base, unsig
  * hides itself for a count of 0, with its stub written to `stubs` (`size` bytes, within rel32 reach
  * of the image, which is still writable). 0 when installed. */
 int runtime_dlc_bonus_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
-/* F4 pauses the game and F4 again goes on (runtime_pause.c): the main thread waits at the start of
- * a frame, with the stub written to `stubs` (`size` bytes, within rel32 reach of the image, which is
- * still writable). 0 when installed. */
-int runtime_pause_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
-/* 1 while the game is paused; runtime_pause_wait returns once it is not (sceAudioOutOutput). */
-int runtime_paused(void);
-void runtime_pause_wait(void);
-/* 1: the guest's monotonic clocks stand still; 0: they go on without the time held (runtime_kernel.c). */
-void runtime_clock_hold(int hold);
+/* F4 opens the game's own Yes/No window asking "Exit the game?", and Yes ends the game
+ * (runtime_exit_prompt.c). Its text comes through the Display page's translation hook, so it
+ * installs only with `display_page` (that install returned 0). 0 when installed. */
+int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int display_page);
+/* The text the exit prompt shows for an I2 term while it is open, else NULL (translation hook). */
+const char *runtime_exit_prompt_translation(const char *term);
+/* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
+int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);

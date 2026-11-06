@@ -441,16 +441,14 @@ extern "C" int theatrhythm_display_settings_is_open(void) {
     return TheatrhythmOverlay::DisplaySettingsOpen() ? 1 : 0;
 }
 
-extern "C" void theatrhythm_gpu_set_pause_available(int available) {
-    TheatrhythmOverlay::SetPauseAvailable(available != 0);
+extern "C" int theatrhythm_gpu_take_exit_request(void) {
+    return TheatrhythmOverlay::TakeExitRequest() ? 1 : 0;
 }
 
-extern "C" int theatrhythm_gpu_pause_requested(void) {
-    return TheatrhythmOverlay::PauseRequested() ? 1 : 0;
-}
-
-extern "C" void theatrhythm_gpu_set_paused(int paused) {
-    TheatrhythmOverlay::SetPaused(paused != 0);
+extern "C" void theatrhythm_gpu_request_quit(void) {
+    SDL_Event event{};
+    event.type = SDL_EVENT_QUIT; // the window thread ends the process as when the window is closed
+    SDL_PushEvent(&event);
 }
 
 extern "C" int theatrhythm_display_get(int setting) {

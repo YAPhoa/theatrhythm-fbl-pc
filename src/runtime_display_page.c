@@ -748,8 +748,9 @@ static ABI int on_language_changed_b(HookRegs *r) { return on_language_changed(r
 static ABI int translate(HookRegs *r) {
     void *component=label_text; label_text=NULL;
     char term[80]; guest_string((const void *)r->rdi,term,sizeof(term));
-    const char *text=NULL;
-    if (!strcmp(term,"Scene/Config/TopButton/007") && in_button(component)) text="Display Settings";
+    const char *text=runtime_exit_prompt_translation(term); /* F4's "Exit the game?" window */
+    if (text) {}
+    else if (!strcmp(term,"Scene/Config/TopButton/007") && in_button(component)) text="Display Settings";
     else if (describing && !strcmp(term,"Common/DetailText/Config0007")) /* Logo Usage's description */
         text="Change the window mode, resolution, VSync, frame rate limit and render resolution";
     else if (display_mode) {

@@ -142,17 +142,21 @@ above that (an uncapped `fps_limit`) the party slid along in its idle pose. `src
 sends that comparison through a stub that divides the distance by (60 x `Time.deltaTime`)^2, so
 any frame rate reads like 60; at 60 fps the result is unchanged.
 
-F4 pauses the game and F4 again goes on (`src/runtime_pause.c`); the overlay takes the key (Alt+F4
-still closes). Nothing of the game's is called: its main thread waits at the start of
-`ProcessLifecyclePS4::Update`, as in a long frame. While it waits, the guest's monotonic clocks
-(`sceKernelGetProcessTime`, `sceKernelReadTsc`, `clock_gettime` MONOTONIC) stand still and then go
-on without the pause, so Unity's and the song's time do not jump; `sceAudioOutOutput` holds FMOD's
-mixer, so the music stops where it is; the present thread redraws the last frame under "Paused"
-without vblank or flip events (`DebugState.IsGuestThreadsPaused`), and the hang dump waits. Other
-threads finish what they are doing (a save being written, loading) and then wait as in any long
-frame; Unity's render thread logs "Forcing submitDone to avoid TRC R4089 breach" every few seconds,
-as it does on a PS4 when a frame takes that long. Wall-clock time (`gettimeofday`, REALTIME) keeps
-running.
+F4 asks "Exit the game?" in the game's own Yes/No window (`src/runtime_exit_prompt.c`), so it has
+the game's look and sounds. The overlay takes the key (Alt+F4 still closes at once); on the game
+thread `ProcessLifecyclePS4::Update` (every frame) calls the Language page's `openResetSettingWindow`
+with the lifecycle object in place of the page, which only becomes the target of the window's
+reaction callback. The Display page's translation hook swaps its text term
+(`Scene/Config/Default/001`), and the callback, `onExecuteResetSettingWindow`, is answered for that
+target. During a song (`MusicStageMainLoop::updateState` ran this frame) it first calls
+`MusicStageMainLoop.callSystemPause(true)`, the pause the PS4's system menu causes: the song and its
+music stand still without the game's pause menu, which would take the keys under the window (a
+Cross on No once chose its Retry Song). No ends that pause and the song goes on; Yes pushes the same
+quit event as closing the window, once no save is mounted, backed up or written
+(`runtime_savedata_busy`, at most 10 s). It does not open while another game window updates
+(`WindowMain::Update`: a second window of the same scene throws "An item with the same key has
+already been added", and an exception through a hook stub ends the game) or when
+`WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
 
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`

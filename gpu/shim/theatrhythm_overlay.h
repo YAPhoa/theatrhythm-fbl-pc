@@ -51,13 +51,8 @@ bool CapturesInput();
 void OpenDisplaySettings();
 bool DisplaySettingsOpen();
 
-/// F4's pause (src/runtime_pause.c). F4 turns PauseRequested on and off once the runtime has said
-/// the game can pause (SetPauseAvailable); SetPaused: the game's main thread waits, so "Paused" is
-/// drawn over the last frame, which the present thread redraws while Paused (DebugState). Any thread.
-void SetPauseAvailable(bool available);
-bool PauseRequested();
-void SetPaused(bool paused);
-bool Paused();
+/// Any thread: F4 was pressed since the last call (the game's "Exit the game?" window).
+bool TakeExitRequest();
 
 /// Window thread: the game's text dialog (sceImeDialog). Shown as a box on screen until
 /// `active` is false; typing goes to the window (sdl_window), the box only displays it.
