@@ -59,6 +59,9 @@ bool CapturesInput();
 void OpenDisplaySettings();
 bool DisplaySettingsOpen();
 
+/// Any thread: F4 was pressed since the last call (the game's "Exit the game?" window).
+bool TakeExitRequest();
+
 /// Window thread: the game's text dialog (sceImeDialog). Shown as a box on screen until
 /// `active` is false; typing goes to the window (sdl_window), the box only displays it.
 void SetTextEntry(bool active, const std::string& prompt, const std::string& text);

@@ -916,10 +916,11 @@ int main(int argc, char **argv) {
     if (!isa_table && cpu_missing_sets) { printf("STOP: this CPU lacks %s and no rewrite table matches the image\n", missing); return 20; }
     /* The stubs follow the image in the same low mapping (rel32 jmps reach them). */
     size_t stub_area = isa_table ? round_page(isa_stub_area_size(isa_table)) : 0;
-    /* Five more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
+    /* Six more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
      * the field walk's stub (runtime_field_walk.c), the DLC bonus row's (runtime_dlc_bonus.c), the
-     * Xbox pad's (runtime_xbox_pad.c) and the opening skip's (runtime_skip_opening.c). */
-    image = allocate(round_page(size) + stub_area + 5 * page_size);
+     * Xbox pad's (runtime_xbox_pad.c), the opening skip's (runtime_skip_opening.c) and the exit
+     * prompt's (runtime_exit_prompt.c). */
+    image = allocate(round_page(size) + stub_area + 6 * page_size);
     printf("Runtime: guest image at %p (guest offsets are relative to it)\n", (void *)image);
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
@@ -1004,10 +1005,13 @@ int main(int argc, char **argv) {
         for (uint64_t m = 0; m < module_count; ++m)
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx"))
                 runtime_game_code_open(image + modules[m].base, modules[m].size, modules[m].seg0_size, app0);
+        int display_page = 0;
         for (uint64_t m = 0; m < module_count; ++m)
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
-                !runtime_display_page_install(image, modules[m].base, hook_stub, page_size, monitor_icon))
+                !runtime_display_page_install(image, modules[m].base, hook_stub, page_size, monitor_icon)) {
                 protect(hook_stub, page_size, 5);
+                display_page = 1;
+            }
         unsigned char *walk_stub = hook_stub + page_size;
         for (uint64_t m = 0; m < module_count; ++m)
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
@@ -1028,6 +1032,11 @@ int main(int argc, char **argv) {
             if (theatrhythm_skip_opening() && !strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_skip_opening_install(image, modules[m].base, opening_stub, page_size))
                 protect(opening_stub, page_size, 5);
+        unsigned char *exit_stub = opening_stub + page_size;
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
+                !runtime_exit_prompt_install(image, modules[m].base, exit_stub, page_size, display_page))
+                protect(exit_stub, page_size, 5);
         runtime_game_code_close();
     }
 #ifdef _WIN32

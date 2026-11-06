@@ -106,6 +106,7 @@ std::chrono::steady_clock::time_point last_present{};
 // The Display Settings panel (F10, or the Options menu's Display Settings button). The row and
 // dirty flag are guarded by imgui_mutex; the values live in TheatrhythmSettings.
 std::atomic<bool> display_open{false};
+std::atomic<bool> exit_requested{false}; // F4: the game shows "Exit the game?" (runtime_exit_prompt.c)
 int display_row = 0;
 bool display_dirty = false;
 enum DisplayRow : int { RowMode, RowResolution, RowMonitor, RowVsync, RowFps, RowQueued, RowAnisotropy, RowRender, RowCount };
@@ -931,7 +932,39 @@ bool HandleEvent(const SDL_Event& event) {
         display_open = true;
         return true;
     }
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F4 && !event.key.repeat && !text_entry_active &&
+        !(event.key.mod & SDL_KMOD_ALT)) { // Alt+F4 still closes the window at once
+        exit_requested = true;
+        return true;
+    }
+    // Share (misc1 on Xbox Series pads) asks the same, unless pad_map gives it to a PS4 button.
+    static const bool share_mapped = [] {
+        const std::string& map = TheatrhythmSettings::Get().pad_map;
+        for (size_t at = 0; at < map.size();) {
+            size_t end = map.find(',', at);
+            if (end == std::string::npos) end = map.size();
+            const std::string_view entry(map.data() + at, end - at);
+            const size_t eq = entry.find('=');
+            if (eq != std::string_view::npos) {
+                std::string_view name = entry.substr(eq + 1);
+                while (!name.empty() && (name.front() == ' ' || name.front() == '\t')) name.remove_prefix(1);
+                while (!name.empty() && (name.back() == ' ' || name.back() == '\t')) name.remove_suffix(1);
+                if (SDL_GetGamepadButtonFromString(std::string(name).c_str()) == SDL_GAMEPAD_BUTTON_MISC1) return true;
+            }
+            at = end + 1;
+        }
+        return false;
+    }();
+    if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && event.gbutton.button == SDL_GAMEPAD_BUTTON_MISC1 &&
+        !share_mapped && !text_entry_active) {
+        exit_requested = true;
+        return true;
+    }
     return false;
+}
+
+bool TakeExitRequest() {
+    return exit_requested.exchange(false);
 }
 
 void OpenDisplaySettings() {

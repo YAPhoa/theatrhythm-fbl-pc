@@ -159,6 +159,25 @@ picks it unless first-time setup is due); the movie can be skipped with Options 
 `OpeningMain.endMovie`, the movie's own end: it marks the movie seen and goes to the title screen
 before the movie starts. Later Opening scenes in the same session play as before.
 
+F4 asks "Exit the game?" in the game's own Yes/No window (`src/runtime_exit_prompt.c`), so it has
+the game's look and sounds. The overlay takes the key (Alt+F4 still closes at once), and the Share button (SDL `misc1`)
+unless `pad_map` names it; on the game
+thread `ProcessLifecyclePS4::Update` (every frame) calls the Language page's `openResetSettingWindow`
+with the lifecycle object in place of the page, which only becomes the target of the window's
+reaction callback. The Display page's translation hook swaps its text term
+(`Scene/Config/Default/001`), and the callback, `onExecuteResetSettingWindow`, is answered for that
+target. During a song (`MusicStageMainLoop::updateState` ran this frame) it first calls
+`MusicStageMainLoop.callSystemPause(true)`, the pause the PS4's system menu causes: the song and its
+music stand still without the game's pause menu, which would take the keys under the window (a
+Cross on No once chose its Retry Song). No ends that pause, and a hook on the synchronous
+`MusicStageMainLoop::resume(2)` sets its `countdown` argument, which the end of a system pause passes
+as false, so the song goes on after the 3-2-1 of Resume Song (`ResumeCounter`). Yes pushes the same
+quit event as closing the window, once no save is mounted, backed up or written
+(`runtime_savedata_busy`, at most 10 s). It does not open while another game window updates
+(`WindowMain::Update`: a second window of the same scene throws "An item with the same key has
+already been added", and an exception through a hook stub ends the game) or when
+`WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).

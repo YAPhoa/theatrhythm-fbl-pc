@@ -94,6 +94,14 @@ int runtime_xbox_pad_install(unsigned char *image, uint64_t module_base, unsigne
  * before its movie plays, so the logo leads to the title screen; stub written to `stubs` (`size`
  * bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
 int runtime_skip_opening_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* F4 opens the game's own Yes/No window asking "Exit the game?", and Yes ends the game
+ * (runtime_exit_prompt.c). Its text comes through the Display page's translation hook, so it
+ * installs only with `display_page` (that install returned 0). 0 when installed. */
+int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int display_page);
+/* The text the exit prompt shows for an I2 term while it is open, else NULL (translation hook). */
+const char *runtime_exit_prompt_translation(const char *term);
+/* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
+int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);

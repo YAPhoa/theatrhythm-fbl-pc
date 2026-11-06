@@ -516,14 +516,27 @@ static int is_mounted(const char *host) {
     pthread_mutex_unlock(&lock);
     return found;
 }
+static int backups_running; /* make_backup copying (sceSaveDataUmountWithBackup frees the slot first) */
 static int32_t make_backup(const char *host, const char *meta, const char *backup) {
     char data[720], sys[720];
     snprintf(data,sizeof(data),"%s/data",backup);
     snprintf(sys,sizeof(sys),"%s/sce_sys",backup);
+    __atomic_add_fetch(&backups_running,1,__ATOMIC_ACQ_REL);
     remove_tree(backup);
-    if (copy_tree(host,data,0) || copy_tree(meta,sys,0)) { remove_tree(backup); return ERR_INTERNAL; }
-    ++backups_done;
-    return 0;
+    int32_t r=0;
+    if (copy_tree(host,data,0) || copy_tree(meta,sys,0)) { remove_tree(backup); r=ERR_INTERNAL; }
+    else ++backups_done;
+    __atomic_sub_fetch(&backups_running,1,__ATOMIC_ACQ_REL);
+    return r;
+}
+/* 1 while the game has a save mounted, a backup copying or a SaveDataMemory write going on (the
+ * lock waits that out): F4's Yes ends the game only after it (runtime_pause.c). */
+int runtime_savedata_busy(void) {
+    pthread_mutex_lock(&lock);
+    int busy=__atomic_load_n(&backups_running,__ATOMIC_ACQUIRE)>0;
+    for (int i=0;i<SLOTS && !busy;++i) busy=slots[i].used;
+    pthread_mutex_unlock(&lock);
+    return busy;
 }
 typedef struct { int32_t user; int32_t pad; const TitleId *title; const DirName *dir; const void *fingerprint;
                  uint8_t reserved[32]; } BackupRequest;

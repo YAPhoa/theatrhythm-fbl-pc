@@ -42,6 +42,10 @@ int theatrhythm_gpu_overlay_captures_input(void);
 /* Opens the Display Settings panel (the Options menu's Display Settings button); 1 while it is open. */
 void theatrhythm_display_settings_open(void);
 int theatrhythm_display_settings_is_open(void);
+/* 1 once per press of F4 (the game's "Exit the game?" window, runtime_exit_prompt.c); any thread. */
+int theatrhythm_gpu_take_exit_request(void);
+/* Ends the game as closing its window does (any thread). */
+void theatrhythm_gpu_request_quit(void);
 /* The Options menu's Display Settings page (runtime_display_page.c). get: a setting's value (window
  * mode 0 windowed, 1 borderless, 2 fullscreen; resolution: index into the sizes, largest first;
  * VSync 0/1, off keeping the tearing choice; frame rate limit in FPS, 0 one per vblank, -1 unlimited).

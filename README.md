@@ -205,6 +205,13 @@ taps a trigger and either stick slides, so each hand gets a stick and taps:
 | Tab, P | Options |
 | T | touchpad click |
 
+**F4** asks "Exit the game?" in the game's own Yes/No window, with its sounds (No is selected
+first). During a song it pauses the song first, and No carries on from the same moment after a
+3-2-1 countdown. Yes closes the game, after any save in progress is written. It doesn't open over
+another of the game's windows or during a scene change: a note says so. Alt+F4 still closes the
+game at once. Share on an Xbox Series pad asks the same, unless `pad_map` gives it a PS4 button.
+**F10** opens the Display Settings panel.
+
 Keys are physical positions, so they're the same on AZERTY or QWERTZ keyboards. To change them,
 edit `key_map` and `pad_map` in `settings.ini`, e.g. `key_map=cross=G,cross=Mouse Left`: the first
 mention of a button replaces its defaults, the next ones add more, and `=None` unbinds it.
