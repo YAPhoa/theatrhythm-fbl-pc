@@ -150,7 +150,9 @@ reaction callback. The Display page's translation hook swaps its text term
 (`Scene/Config/Default/001`), and the callback, `onExecuteResetSettingWindow`, is answered for that
 target. The window takes only Left/Right (No on the left, focused first; it does not wrap) and Cross,
 so while it is open (`runtime_exit_prompt_open`) the pad turns a press of Circle or Options (Escape,
-Start, Tab, P) into Left, then Cross (`exit_prompt_no` in `src/runtime_pad.c`). During a song
+Start, Tab, P) into Left, then Cross (`exit_prompt_no` in `src/runtime_pad.c`). A scene change can
+take the window away unanswered (the title screen's attract movie): once no `WindowMain::Update` has
+run for 30 frames, the prompt counts as closed, so F4 can ask again. During a song
 (`MusicStageMainLoop::updateState` ran this frame) it first calls
 `MusicStageMainLoop.callSystemPause(true)`, the pause the PS4's system menu causes: the song and its
 music stand still without the game's pause menu, which would take the keys under the window (a
