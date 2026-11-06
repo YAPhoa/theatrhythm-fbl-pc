@@ -59,9 +59,11 @@ static void *counting_stage;  /* the one whose next resume counts 3-2-1 */
 static volatile int asking;   /* that window is open */
 static int ending;            /* Yes chosen: the game ends once no save is busy */
 /* Frames (lifecycle updates), the last one a game window or a music stage updated in, the one the
- * song was paused in for the prompt (0: none) and the one Yes was chosen in. */
-static unsigned frame, window_frame, stage_frame, paused_song_frame, yes_frame;
-enum { PAUSE_FRAMES=6, SAVE_WAIT_FRAMES=600 }; /* the song stands; 10 s at 60 fps */
+ * song was paused in for the prompt (0: none), the one the window opened in and the one Yes was
+ * chosen in. */
+static unsigned frame, window_frame, stage_frame, paused_song_frame, open_frame, yes_frame;
+/* the song stands; 10 s at 60 fps; no window update for half a second: the prompt's window is gone */
+enum { PAUSE_FRAMES=6, SAVE_WAIT_FRAMES=600, GONE_FRAMES=30 };
 
 static int32_t load32(const void *p) { int32_t v; memcpy(&v,p,4); return v; }
 static const char *class_name(const void *object) { /* Il2CppClass: image, gc_desc, name */
@@ -110,7 +112,7 @@ static void open_prompt(void *lifecycle, int over_pause) {
         if (over_pause) end_song_pause();
         return;
     }
-    target=lifecycle; asking=1;
+    target=lifecycle; asking=1; open_frame=frame;
     ((void (ABI *)(void *, void *))CODE(C_OPEN))(target,NULL); /* openResetSettingWindow */
     printf("Exit prompt: open%s\n",over_pause ? " over the paused song" : "");
 }
@@ -134,6 +136,13 @@ static ABI int lifecycle_update(HookRegs *r) {
         paused_song_frame=0;
         open_prompt((void *)r->rdi,1);
         return 0;
+    }
+    /* A scene change (the title screen's attract movie) can take the window away unanswered: with
+     * no window updating, the prompt is over, and F4 can ask again. */
+    if (asking && frame-open_frame>GONE_FRAMES && frame-window_frame>GONE_FRAMES) {
+        asking=0;
+        puts("Exit prompt: its window closed without an answer");
+        end_song_pause();
     }
     if (!theatrhythm_gpu_take_exit_request() || asking) return 0;
     if (frame-stage_frame<=2 && stage && frame-window_frame>2) { /* a song plays: pause it first */
