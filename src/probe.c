@@ -916,10 +916,10 @@ int main(int argc, char **argv) {
     if (!isa_table && cpu_missing_sets) { printf("STOP: this CPU lacks %s and no rewrite table matches the image\n", missing); return 20; }
     /* The stubs follow the image in the same low mapping (rel32 jmps reach them). */
     size_t stub_area = isa_table ? round_page(isa_stub_area_size(isa_table)) : 0;
-    /* Four more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
-     * the field walk's stub (runtime_field_walk.c), the DLC bonus row's (runtime_dlc_bonus.c) and
-     * the Xbox pad's (runtime_xbox_pad.c). */
-    image = allocate(round_page(size) + stub_area + 4 * page_size);
+    /* Five more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
+     * the field walk's stub (runtime_field_walk.c), the DLC bonus row's (runtime_dlc_bonus.c), the
+     * Xbox pad's (runtime_xbox_pad.c) and the opening skip's (runtime_skip_opening.c). */
+    image = allocate(round_page(size) + stub_area + 5 * page_size);
     printf("Runtime: guest image at %p (guest offsets are relative to it)\n", (void *)image);
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
@@ -1023,6 +1023,11 @@ int main(int argc, char **argv) {
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_xbox_pad_install(image, modules[m].base, pad_stub, page_size))
                 protect(pad_stub, page_size, 5);
+        unsigned char *opening_stub = pad_stub + page_size;
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (theatrhythm_skip_opening() && !strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
+                !runtime_skip_opening_install(image, modules[m].base, opening_stub, page_size))
+                protect(opening_stub, page_size, 5);
         runtime_game_code_close();
     }
 #ifdef _WIN32

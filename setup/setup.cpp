@@ -297,6 +297,60 @@ void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save
                     "save=" + narrow(text(save)) + nl);
 }
 
+// The key of a settings.ini line ("key=value", gpu/shim/theatrhythm_settings.cpp), lower case; empty
+// for comments and other lines.
+std::wstring setting_key(std::string_view line) {
+    size_t eq = line.find('=');
+    std::wstring key = eq == std::string_view::npos ? std::wstring() : lower(strip(widen(line.substr(0, eq))));
+    return !key.empty() && key[0] != L'#' && key[0] != L';' ? key : std::wstring();
+}
+
+// `key`'s value in a settings.ini: the last line that sets it wins, as in the game.
+std::optional<std::wstring> read_setting(const fs::path& ini, const std::wstring& key) {
+    std::error_code ec;
+    if (!fs::is_regular_file(ini, ec))
+        return std::nullopt;
+    std::string text = read_text(ini);
+    std::optional<std::wstring> value;
+    for (size_t start = 0; start < text.size();) {
+        size_t end = text.find('\n', start);
+        std::string_view line = std::string_view(text).substr(start, end == std::string::npos ? end : end - start);
+        start = end == std::string::npos ? text.size() : end + 1;
+        if (setting_key(line) == key)
+            value = strip(widen(line.substr(line.find('=') + 1)));
+    }
+    return value;
+}
+
+// Sets `key` in a settings.ini: its first line is replaced and any later ones dropped, or the line is
+// added at the end. The other lines and their line endings stay.
+void write_setting(const fs::path& ini, const std::wstring& key, const std::wstring& value) {
+    std::string text = read_text(ini), out, line_text = narrow(key) + "=" + narrow(value);
+    bool done = false;
+    for (size_t start = 0; start < text.size();) {
+        size_t end = text.find('\n', start);
+        std::string_view line = std::string_view(text).substr(start, end == std::string::npos ? end : end - start);
+        start = end == std::string::npos ? text.size() : end + 1;
+        bool cr = !line.empty() && line.back() == '\r';
+        if (setting_key(line) == key) {
+            if (done)
+                continue;
+            out += line_text + (cr ? "\r" : "");
+            done = true;
+        } else {
+            out += line;
+        }
+        if (end != std::string::npos)
+            out += '\n';
+    }
+    if (!done) {
+        if (!out.empty() && out.back() != '\n')
+            out += kNewline;
+        out += line_text + kNewline;
+    }
+    write_text(ini, out);
+}
+
 #ifndef _WIN32
 // A desktop entry's quoted argument: ", `, $ and \ escaped inside the quotes, \ doubled again for
 // the string value itself, and % doubled (field codes).
@@ -498,6 +552,20 @@ bool ready(const fs::path& root) {
     }
 }
 
+bool skip_opening(const fs::path& root, const fs::path& save) {
+    std::error_code ec;
+    fs::path ini = save / L"settings.ini";
+    if (!fs::is_regular_file(ini, ec))
+        ini = root / L"settings.ini";
+    try {
+        std::optional<std::wstring> value = read_setting(ini, L"skip_opening");
+        std::wstring v = value ? lower(*value) : L"";
+        return v == L"1" || v == L"true" || v == L"yes" || v == L"on";
+    } catch (const Error&) {
+        return false;
+    }
+}
+
 bool has_saves(const fs::path& save) {
     std::error_code ec;
     fs::path data = save / L"savedata";
@@ -579,6 +647,17 @@ fs::path install(const Options& opt, const Log& log) {
                 fail(L"Cannot copy " + text(from) + L" to " + text(save) + L": " + widen(ec.message()));
         }
         log(L"copied   saves from " + text(*opt.copy_saves_from));
+    }
+    // The game reads the save folder's settings.ini once it has one (the in-game Display Settings
+    // write it), else this folder's: set both.
+    if (opt.skip_opening) {
+        const std::wstring value = *opt.skip_opening ? L"1" : L"0";
+        for (const fs::path& ini : {settings, save / L"settings.ini"}) {
+            if (!fs::is_regular_file(ini, ec))
+                continue;
+            write_setting(ini, L"skip_opening", value);
+            log(L"set      skip_opening=" + value + L" in " + text(ini));
+        }
     }
     write_paths(root / L"paths.ini", game, save);
     log(L"wrote    paths.ini (game " + text(game) + L", save " + text(save) + L")");

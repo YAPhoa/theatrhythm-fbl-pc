@@ -89,10 +89,13 @@ Linux PC with its own GPU or on a Steam Deck. If you try it there, please report
 3. Choose your **game folder** (the dump) and a **save folder** (by default `save` inside the
    release folder), then press **Install**. Setup prepares the game from your dump in a few
    seconds and offers a desktop shortcut. Your dump is only read, never changed.
+   Tick **Skip the opening movie** to go from the start-up logo straight to the title screen.
 4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut.
 
 Run `theatrhythm-setup.exe` again any time to change the game or save folder. It offers to copy your
-saves when the save folder moves.
+saves when the save folder moves. To get the opening movie back, untick the box and press
+**Install** again, or set `skip_opening=0` in `settings.ini`. Even with the movie on, **Options**
+skips it once you have watched it through one time.
 
 ### On Linux
 
@@ -101,8 +104,9 @@ saves when the save folder moves.
 2. Run `theatrhythm-setup`: open it from your file manager and it asks with dialogs, or run
    `./theatrhythm-setup` in a terminal and it asks there. It also takes
    `--game <dump> [--save <folder>]` on the command line.
-3. Pick your **game folder** (the dump) and keep or change the **save folder**. Setup prepares the
-   game in a few seconds and offers an entry in your application menu.
+3. Pick your **game folder** (the dump), keep or change the **save folder**, and choose whether to
+   skip the opening movie. Setup prepares the game in a few seconds and offers an entry in your
+   application menu.
 4. Start the game from the menu entry, or run `./theatrhythm-fbl`.
 
 On a Steam Deck, do this in Desktop Mode; then *Add a Non-Steam Game* in Steam lists the menu entry.

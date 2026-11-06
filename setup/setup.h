@@ -23,6 +23,7 @@ struct Options {
     std::filesystem::path game; // the dump folder or its eboot.bin
     std::filesystem::path save; // saves and the launch log (run.py's --user)
     std::optional<std::filesystem::path> copy_saves_from; // the old save folder, whose saves go to `save`
+    std::optional<bool> skip_opening; // settings.ini skip_opening to write; unset keeps what is there
 };
 
 // The folders a release folder's paths.ini names.
@@ -72,6 +73,9 @@ std::filesystem::path default_save();
 bool ready(const std::filesystem::path& root);
 // True when `save` holds game saves (a savedata folder with something in it).
 bool has_saves(const std::filesystem::path& save);
+// settings.ini skip_opening as the game reads it: from the save folder's file when there is one,
+// else the release folder's; false when unset.
+bool skip_opening(const std::filesystem::path& root, const std::filesystem::path& save);
 bool same_path(const std::filesystem::path& a, const std::filesystem::path& b);
 
 // Sets up opt.root, reporting each step through `log`. Throws Error. Returns the game exe's path.

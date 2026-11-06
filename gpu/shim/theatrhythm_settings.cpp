@@ -68,6 +68,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.key_map = value;
     } else if (key == "menu_confirm_swap") {
         v.menu_confirm_swap = Truthy(value) || value == "circle" ? 1 : 0;
+    } else if (key == "skip_opening") {
+        v.skip_opening = Truthy(value);
     } else if (key == "master_volume") {
         v.master_volume = value.empty() ? MasterVolumeDefault : std::clamp(i, MasterVolumeMin, MasterVolumeMax);
     } else if (key == "audio_channels") {
@@ -212,7 +214,7 @@ void Load() {
         {"THEATRHYTHM_ASYNC_SHADERS_SKIP_FRAMES", "async_shaders_skip_frames"},
         {"THEATRHYTHM_ANISOTROPY", "anisotropy"},     {"THEATRHYTHM_VIBRATION", "vibration"},
         {"THEATRHYTHM_AUDIO_VOLUME", "master_volume"}, {"THEATRHYTHM_AUDIO_CHANNELS", "audio_channels"},
-        {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"},
+        {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"}, {"THEATRHYTHM_SKIP_OPENING", "skip_opening"},
         {"THEATRHYTHM_PAD_MAP", "pad_map"},       {"THEATRHYTHM_KEY_MAP", "key_map"},
         {"THEATRHYTHM_BUTTON_ICONS", "button_icons"}, {"THEATRHYTHM_RENDER_RESOLUTION", "render_resolution"},
     };
@@ -245,6 +247,10 @@ extern "C" int theatrhythm_gpu_menu_confirm_swap(void) {
 
 extern "C" const char* theatrhythm_button_icons(void) {
     return TheatrhythmSettings::ButtonIconKeys[TheatrhythmSettings::Get().button_icons].data();
+}
+
+extern "C" int theatrhythm_skip_opening(void) {
+    return TheatrhythmSettings::Get().skip_opening ? 1 : 0;
 }
 
 extern "C" int theatrhythm_render_4k(void) {

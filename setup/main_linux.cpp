@@ -2,14 +2,15 @@
 // theatrhythm-setup (Linux): sets up the release folder it sits in (tools/package.py) from the player's
 // Theatrhythm Final Bar Line dump, so the game starts from theatrhythm-fbl or its menu entry.
 //
-// With no arguments it asks for the game folder (the dump) and the save folder, installs, and offers
+// With no arguments it asks for the game folder (the dump), the save folder and whether to skip the
+// opening movie (settings.ini skip_opening), installs, and offers
 // a menu entry and to start the game: in the terminal it was started from, or with the desktop's
 // dialogs (SDL: the folder picker and message boxes) when it has none, as from a file manager. Run it
 // again to change either folder, or after unpacking a newer release over the folder.
 // With arguments it installs from the command line:
 //
 //     theatrhythm-setup --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
-//                       [--shortcut <folder>|desktop|menu]
+//                       [--skip-opening|--play-opening] [--shortcut <folder>|desktop|menu]
 
 #include "setup.h"
 
@@ -50,10 +51,13 @@ void err(const std::wstring& s) {
 
 constexpr wchar_t kUsage[] =
     L"usage: theatrhythm-setup --game <dump or eboot.bin> [--save <folder>] [--copy-saves]\n"
-    L"                         [--shortcut <folder>|desktop|menu]\n"
+    L"                         [--skip-opening|--play-opening] [--shortcut <folder>|desktop|menu]\n"
     L"  --game        the decrypted game dump (eboot.bin, sce_module, sce_sys, Media); only ever read\n"
     L"  --save        where your saves go (default: the one paths.ini names, else save/ here)\n"
     L"  --copy-saves  when --save changes, copy the saves from the old save folder\n"
+    L"  --skip-opening, --play-opening\n"
+    L"                start at the title screen without the opening movie, or play it again\n"
+    L"                (settings.ini skip_opening; default: leave it as it is)\n"
     L"  --shortcut    also write the game's desktop entry into this folder, onto the Desktop or into\n"
     L"                the application menu\n"
     L"Sets up the folder this program is in. With no arguments, asks for the folders.";
@@ -69,6 +73,7 @@ fs::path shortcut_folder(const std::wstring& where) {
 int run_cli(const std::vector<std::wstring>& args) {
     std::wstring game, save, shortcut;
     bool copy_saves = false;
+    std::optional<bool> skip_opening;
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         std::wstring* value = a == L"--game"       ? &game
@@ -79,6 +84,8 @@ int run_cli(const std::vector<std::wstring>& args) {
             *value = args[++i];
         } else if (a == L"--copy-saves") {
             copy_saves = true;
+        } else if (a == L"--skip-opening" || a == L"--play-opening") {
+            skip_opening = a == L"--skip-opening";
         } else {
             err(a == L"--help" || a == L"-h" ? kUsage : std::wstring(kUsage) + L"\n\nunexpected: " + a);
             return 2;
@@ -96,6 +103,7 @@ int run_cli(const std::vector<std::wstring>& args) {
         opt.save = !save.empty() ? setup::path_of(save) : old ? old->save : setup::default_save();
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
+        opt.skip_opening = skip_opening;
         fs::path exe = setup::install(opt, out);
         if (!shortcut.empty()) {
             fs::path entry = shortcut_folder(shortcut) / setup::kShortcutName;
@@ -288,11 +296,20 @@ int run_asking(Asker& ask) {
     } else if (keep != 0) {
         return 1;
     }
+    // The current choice (settings.ini skip_opening) is the default answer; Install writes the new one.
+    const bool skipping = setup::skip_opening(root, save);
+    std::vector<std::wstring> answers = {L"Skip it", L"Play it"};
+    if (!skipping)
+        std::swap(answers[0], answers[1]);
+    int skip = ask.choose(L"Skip the opening movie (set skip_opening=0 in settings.ini to bring it back)?", answers);
+    if (skip < 0)
+        return 1;
 
     setup::Options opt;
     opt.root = root;
     opt.game = *game;
     opt.save = save;
+    opt.skip_opening = (skip == 0) == skipping;
     try {
         if (auto old = saves_to_move(opt.root, opt.save)) {
             int answer = ask.choose(L"Copy your saves to the new save folder?\n\nFrom: " + setup::text(*old) +

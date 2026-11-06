@@ -90,6 +90,10 @@ int runtime_dlc_bonus_install(unsigned char *image, uint64_t module_base, unsign
  * hooks MSGamePad's per-frame calls, with stubs written to `stubs` (`size` bytes, within rel32 reach
  * of the image, which is still writable). 0 when installed. */
 int runtime_xbox_pad_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* settings.ini skip_opening (runtime_skip_opening.c): the first Opening scene after each start ends
+ * before its movie plays, so the logo leads to the title screen; stub written to `stubs` (`size`
+ * bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_skip_opening_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
