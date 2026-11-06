@@ -122,13 +122,40 @@ Setup also remembers your folders outside the release, in `%APPDATA%\Theatrhythm
 them, so setup only needs **Install**. To use another save folder without running setup, set the
 environment variable `THEATRHYTHM_SAVE_DIR` to it; it wins over the one setup chose.
 
+## Adding DLC
+
+The game's own DLC works from a decrypted dump of DLC you own. Each add-on is one folder in
+`addcont` inside your save folder:
+
+```
+<save folder>/
+  addcont/
+    <label>/
+      dlcparam.json
+      catalog.json
+      ...
+```
+
+1. Close the game.
+2. Make a folder `addcont` in your save folder (the one you chose in setup; by default `save` inside
+   the release folder).
+3. Copy each DLC into it as a folder of its own, with `dlcparam.json` directly inside. Name the
+   folder after the DLC's label, the part of its content ID after the last `-`. Any name of up to
+   16 characters works; longer ones are skipped.
+4. Start the game: it finds the DLC at boot.
+
+To remove a DLC, delete its folder. Custom song packs from [dlcmaker](tools/dlcmaker/README.md) go in
+the same place (its **Install** puts them there). Setup copies only your saves when the save folder
+moves, so move `addcont` yourself.
+
 ## Settings
 
-Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,
-frame limit, audio volume and speaker layout, vibration, the dialog confirm button and control
-remapping, each with a comment explaining it. A `settings.ini` in your save folder wins over it, so
-your options can move with your saves; the game reads the one next to it until the save folder has
-its own.
+Your settings are in `settings.ini` in your save folder, so they move with your saves. It holds the
+window mode and size, monitor, vsync, tearing, frame limit, frames queued, anisotropic filtering,
+render resolution, shader compilation, audio volume and speaker layout, vibration, the dialog
+confirm button, control remapping and button icons, each with a comment explaining it. Setup writes
+a default `settings.ini` next to the game, and the game copies it into a save folder that has none
+when it starts. From then on the game reads and writes only the save folder's file: edit that one.
 
 In the game, **Options > Display Settings** (an extra button below Streaming Rules) changes the
 window mode, resolution, vsync, frame rate limit and render resolution. Changes apply at once and
