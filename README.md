@@ -141,12 +141,12 @@ moves, so move `addcont` yourself.
 
 ## Settings
 
-Setup writes `settings.ini` next to the game. It holds the window mode and size, monitor, vsync,
-tearing, frame limit, frames queued, anisotropic filtering, render resolution, shader compilation,
-audio volume and speaker layout, vibration, the dialog confirm button, control remapping and button
-icons, each with a comment explaining it. A `settings.ini` in your save folder wins over it, so
-your options can move with your saves; the game reads the one next to it until the save folder has
-its own.
+Your settings are in `settings.ini` in your save folder, so they move with your saves. It holds the
+window mode and size, monitor, vsync, tearing, frame limit, frames queued, anisotropic filtering,
+render resolution, shader compilation, audio volume and speaker layout, vibration, the dialog
+confirm button, control remapping and button icons, each with a comment explaining it. Setup writes
+a default `settings.ini` next to the game, and the game copies it into a save folder that has none
+when it starts. From then on the game reads and writes only the save folder's file: edit that one.
 
 In the game, **Options > Display Settings** (an extra button below Streaming Rules) changes the
 window mode, resolution, vsync, frame rate limit and render resolution. Changes apply at once and
