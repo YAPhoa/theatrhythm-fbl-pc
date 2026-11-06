@@ -25,6 +25,7 @@
 #include <ucontext.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
+#include <linux/futex.h>
 #include <sys/mman.h>
 #include <asm/prctl.h>
 #endif
@@ -58,6 +59,12 @@ typedef struct GuestThread {
     void *stack_low; uint64_t stack_size; /* the host stack, recorded by attach() on the thread */
 #ifdef _WIN32
     HANDLE os_handle; /* own duplicate: winpthreads closes a detached thread's handle */
+#else
+    /* raise_exception's signal: the raiser's number, the number the thread answered, whether it
+     * ran the handler (0: it was in host code) and whether it must. */
+    uint32_t raise_seq, raise_done;
+    int raise_ran, raise_force;
+    uint64_t raise_rip, raise_rsp; int raise_still; /* the last "not yet" at a system call */
 #endif
 #ifdef _WIN32
     theatrhythm_jmp_buf exit_jump; /* no SEH unwinding through guest frames */
@@ -577,11 +584,16 @@ static ABI void rtld_atexit_decrement(void) { __atomic_sub_fetch(&rtld_atexit_pe
  * sceKernelRemoveExceptionHandler(signum) clears it. sceKernelRaiseException(thread, SIGUSR1)
  * runs the handler on that thread as handler(signum, ucontext*): the IL2CPP collector suspends
  * threads this way and reads the stack pointer from the context (PS4Util.prx). Windows: a thread
- * running user code is suspended and resumed at redzone_deliver, which runs the handler on it
- * below its red zone (no APC: Wine places those differently). A thread stopped in a system call
- * (a blocking wait) stays suspended while a proxy host thread, with the target's thread record and
- * TCB, runs the handler, and resumes when it returns; register changes are not written back there.
- * Linux: a host signal runs it on the thread itself, in guest code or blocked in a wait.
+ * running guest code is suspended and resumed at redzone_deliver, which runs the handler on it
+ * below its red zone (no APC: Wine places those differently). One running host code is let go
+ * until it is back in guest code or blocked, since it may hold a lock the handler takes (the
+ * handler then waited on an event flag while its own thread held their lock: a black screen). A
+ * system call counts as host code unless it is a wait. A thread blocked in a wait stays suspended
+ * while a proxy host thread, with the target's thread record and TCB, runs the handler, and resumes
+ * when it returns; register changes are not written back there.
+ * Linux: a host signal runs it on the thread itself, in guest code or blocked in a wait; one that
+ * lands in other host code (a system call returning included) is answered "not yet" and sent
+ * again, for the same reason.
  * The handler sees a stack pointer below the saved registers, so a conservative stack scan from
  * it covers them as well. The guest signal mask is not consulted; host faults never reach here. */
 typedef struct {
@@ -600,16 +612,22 @@ typedef struct {
 _Static_assert(__builtin_offsetof(GuestUcontext,mc.rsp)==0xf8,"FreeBSD ucontext layout");
 typedef void (ABI *ExceptionHandler)(int32_t,GuestUcontext *);
 static ExceptionHandler exception_handlers[128];
+/* About two seconds of retries before a thread still in host code gets the handler there anyway. */
+#define RAISE_TRIES 2000
 static uint64_t exceptions_raised, exceptions_delivered, exceptions_entered, raised_running, raised_proxy;
 static int exception_signal(int32_t signum) {
     return signum==1 || signum==4 || signum==8 || signum==10 || signum==11 || signum==30;
 }
-#ifndef _WIN32
+#ifdef _WIN32
+static void find_wait_calls(void);
+#else
 static void install_host_signal(void);
 #endif
 static ABI int32_t install_exception_handler(int32_t signum,ExceptionHandler handler) {
     if (!exception_signal(signum)) return ERR(22);
-#ifndef _WIN32
+#ifdef _WIN32
+    find_wait_calls();
+#else
     install_host_signal();
 #endif
     ExceptionHandler none=NULL;
@@ -669,6 +687,36 @@ static void leave_resume(CONTEXT *c) {
     } else if (c->Rip==(DWORD64)(uintptr_t)redzone_resume_jump) {
         c->Rip=*(const uint64_t *)(uintptr_t)(c->Rsp-RESUME_GAP);
     }
+}
+/* Host code (the runner, its DLLs, Windows) is mapped as executable images; the game image, its
+ * rewrite stubs and the hook stubs are not. */
+static int host_code(DWORD64 rip) {
+    MEMORY_BASIC_INFORMATION m;
+    return VirtualQuery((const void *)(uintptr_t)rip,&m,sizeof(m)) && m.Type==MEM_IMAGE;
+}
+/* A thread suspended in a system call has the call's number in rax, whether it is blocked or
+ * finishing a quick one (an NtSetEvent under a runtime lock). These are the waits, read from the
+ * ntdll stubs (mov r10,rcx; mov eax,N), whose numbers differ between Windows builds and Wine.
+ * Read when the handler is installed: nothing is suspended then (one may hold the loader lock). */
+static uint32_t wait_calls[8];
+static int wait_call_count;
+static void find_wait_calls(void) {
+    static const char *const names[]={"NtWaitForSingleObject","NtWaitForMultipleObjects","NtDelayExecution",
+        "NtWaitForAlertByThreadId","NtSignalAndWaitForSingleObject","NtRemoveIoCompletion",
+        "NtRemoveIoCompletionEx","NtWaitForKeyedEvent"};
+    HMODULE ntdll=GetModuleHandleA("ntdll.dll");
+    if (!ntdll || __atomic_load_n(&wait_call_count,__ATOMIC_ACQUIRE)) return;
+    int n=0;
+    for (size_t i=0;i<sizeof(names)/sizeof(names[0]);++i) {
+        const unsigned char *stub=(const unsigned char *)(uintptr_t)GetProcAddress(ntdll,names[i]);
+        if (stub && stub[0]==0x4c && stub[1]==0x8b && stub[2]==0xd1 && stub[3]==0xb8) memcpy(&wait_calls[n++],stub+4,4);
+    }
+    __atomic_store_n(&wait_call_count,n,__ATOMIC_RELEASE);
+}
+static int wait_call(DWORD64 rax) {
+    for (int i=0,n=__atomic_load_n(&wait_call_count,__ATOMIC_ACQUIRE);i<n;++i)
+        if ((uint32_t)rax==wait_calls[i]) return 1;
+    return 0;
 }
 /* Runs on the interrupted thread from redzone_deliver; the reported stack pointer is this frame's
  * context copy, and registers the handler changes are written back on return (rip and rsp through
@@ -738,15 +786,61 @@ static void *proxy_deliver(void *p) {
  * standard signal would merge them). The kernel builds its frame below the red zone, restores every
  * register and the FPU state on return, and restarts or wakes a wait the thread was blocked in. */
 #define EXCEPTION_HOST_SIGNAL (SIGRTMIN+2)
+/* Host code: this executable's text (not PIE: it sits low) and everything above 1 TiB (shared
+ * libraries, the vDSO). The game image, its rewrite stubs and the hook stubs are all lower. */
+extern const char __executable_start[], etext[];
+static int host_code(uint64_t rip) {
+    return (rip>=(uintptr_t)__executable_start && rip<(uintptr_t)etext) || rip>=(UINT64_C(1)<<40);
+}
+/* A system call that blocks: rax holds its number while it is about to run or will be restarted. */
+static int wait_call(const greg_t *g) {
+    switch (g[REG_RAX]) {
+    case SYS_futex: {
+        const int op=(int)g[REG_RSI]&~(FUTEX_PRIVATE_FLAG|FUTEX_CLOCK_REALTIME);
+        return op==FUTEX_WAIT || op==FUTEX_WAIT_BITSET || op==FUTEX_LOCK_PI || op==FUTEX_WAIT_REQUEUE_PI;
+    }
+    case SYS_restart_syscall: case SYS_nanosleep: case SYS_clock_nanosleep: case SYS_poll: case SYS_ppoll:
+    case SYS_select: case SYS_pselect6: case SYS_epoll_wait: case SYS_epoll_pwait: case SYS_rt_sigtimedwait:
+    case SYS_rt_sigsuspend: case SYS_pause: case SYS_wait4: case SYS_waitid:
+        return 1;
+    default:
+        return 0;
+    }
+}
+/* Blocked in a wait. A signal is taken as any system call returns, and between instructions, so
+ * on a syscall instruction rip is a wait the kernel restarts or a call about to run (the futex
+ * wake of a condition signal under a runtime lock: still host code); rax tells which. A wait
+ * interrupted for good returns EINTR; one not listed (a blocking read) shows up as the same
+ * restart again and again. */
+static int in_wait(GuestThread *t,const greg_t *g) {
+    const unsigned char *r=(const unsigned char *)(uintptr_t)g[REG_RIP];
+    if (r[-2]==0x0f && r[-1]==0x05 && g[REG_RAX]==-EINTR) return 1;
+    if (r[0]!=0x0f || r[1]!=0x05) return 0;
+    if (wait_call(g)) return 1;
+    if ((uint64_t)g[REG_RIP]==t->raise_rip && (uint64_t)g[REG_RSP]==t->raise_rsp) return ++t->raise_still>=3;
+    t->raise_rip=(uint64_t)g[REG_RIP]; t->raise_rsp=(uint64_t)g[REG_RSP]; t->raise_still=0;
+    return 0;
+}
 /* Runs on the raised thread, whose GS still holds its guest TCB; the handler starts with a fresh FPU
- * state, so the PS4's comes first. Registers the handler changes are written back on return. */
+ * state, so the PS4's comes first. Registers the handler changes are written back on return. The
+ * raiser passes the thread record; a thread running host code answers without running the handler
+ * (it may hold a lock the handler takes) and is signalled again. */
 static void exception_signal_handler(int sig,siginfo_t *info,void *context) {
-    (void)sig; (void)info;
+    (void)sig;
+    greg_t *g=((ucontext_t *)context)->uc_mcontext.gregs;
+    GuestThread *t=info->si_code==SI_QUEUE ? info->si_value.sival_ptr : NULL;
+    if (t) {
+        const uint32_t seq=__atomic_load_n(&t->raise_seq,__ATOMIC_ACQUIRE);
+        if (__atomic_load_n(&t->raise_done,__ATOMIC_RELAXED)==seq) return; /* answered already */
+        const uint64_t rip=(uint64_t)g[REG_RIP];
+        t->raise_ran=t->raise_force || !host_code(rip) || in_wait(t,g);
+        __atomic_store_n(&t->raise_done,seq,__ATOMIC_RELEASE);
+        if (!t->raise_ran) return;
+    }
     ExceptionHandler handler=__atomic_load_n(&exception_handlers[30-1],__ATOMIC_ACQUIRE);
     if (!handler) return;
     int saved_errno=errno;
     runtime_orbis_fpu();
-    greg_t *g=((ucontext_t *)context)->uc_mcontext.gregs;
     GuestUcontext u={0};
     GuestMcontext *m=&u.mc;
     m->r8=(uint64_t)g[REG_R8]; m->r9=(uint64_t)g[REG_R9]; m->r10=(uint64_t)g[REG_R10]; m->r11=(uint64_t)g[REG_R11];
@@ -784,19 +878,52 @@ static ABI int32_t raise_exception(GuestThread *t,int32_t signum) {
     __atomic_add_fetch(&exceptions_raised,1,__ATOMIC_RELAXED);
 #ifdef _WIN32
     if (t==current) { deliver_to_self(signum); return 0; }
-    /* Suspended under the lock its exit takes: the handle stays open and the thread alive. */
-    pthread_mutex_lock(&lock);
-    HANDLE h=t->finished ? NULL : t->os_handle;
-    DWORD suspended=h ? SuspendThread(h) : (DWORD)-1;
-    pthread_mutex_unlock(&lock);
-    if (suspended==(DWORD)-1) return ERR(3);
     Proxy *x=malloc(sizeof(*x));
-    if (!x) { ResumeThread(h); return ERR(12); }
-    *x=(Proxy){.t=t,.h=h,.signum=signum};
-    x->c.ContextFlags=CONTEXT_FULL;
-    if (!GetThreadContext(h,&x->c)) { ResumeThread(h); free(x); return ERR(3); }
-    const unsigned char *rip=(const unsigned char *)(uintptr_t)x->c.Rip;
-    if (rip[-2]==0x0f && rip[-1]==0x05) { /* stopped just after a syscall instruction */
+    if (!x) return ERR(12);
+    HANDLE h;
+    int proxy_it=0, still=0;
+    DWORD64 last_rip=0, last_rsp=0;
+    ULONG64 last_cycles=0;
+    for (unsigned tries=0;;++tries) {
+        /* Suspended under the lock its exit takes: the handle stays open and the thread alive. */
+        pthread_mutex_lock(&lock);
+        h=t->finished ? NULL : t->os_handle;
+        DWORD suspended=h ? SuspendThread(h) : (DWORD)-1;
+        pthread_mutex_unlock(&lock);
+        if (suspended==(DWORD)-1) { free(x); return ERR(3); }
+        *x=(Proxy){.t=t,.h=h,.signum=signum};
+        x->c.ContextFlags=CONTEXT_FULL;
+        if (!GetThreadContext(h,&x->c)) { ResumeThread(h); free(x); return ERR(3); }
+        const unsigned char *rip=(const unsigned char *)(uintptr_t)x->c.Rip;
+        if (rip[-2]==0x0f && rip[-1]==0x05) { /* stopped in a system call */
+            if (wait_call(x->c.Rax) || tries>=RAISE_TRIES) { proxy_it=1; break; }
+            /* Another call, or a wait not listed (hooked stub, socket): blocked once it stays there
+             * three times without running in between. */
+            ULONG64 cycles=0;
+            QueryThreadCycleTime(h,&cycles);
+            if (x->c.Rip==last_rip && x->c.Rsp==last_rsp && cycles==last_cycles) {
+                if (++still==3) { proxy_it=1; break; }
+            } else still=0;
+            last_rip=x->c.Rip; last_rsp=x->c.Rsp; last_cycles=cycles;
+            ResumeThread(h);
+            Sleep(1);
+            continue;
+        }
+        leave_resume(&x->c);
+        if (!host_code(x->c.Rip)) break;
+        /* Inside the runtime, a host library or a handler on its way out: it may hold a lock the
+         * handler needs (every event flag shares one, and the IL2CPP handler waits on a flag), so
+         * it runs on until it is back in guest code or blocked. */
+        if (tries==RAISE_TRIES) {
+            printf("Runtime: thread '%s' stayed in host code at %p for a guest exception; handled from another thread\n",
+                   t->name,(void *)(uintptr_t)x->c.Rip);
+            proxy_it=1;
+            break;
+        }
+        ResumeThread(h);
+        if (tries<64) SwitchToThread(); else Sleep(1);
+    }
+    if (proxy_it) {
         pthread_t proxy; pthread_attr_t attr;
         pthread_attr_init(&attr); pthread_attr_setstacksize(&attr,DEFAULT_STACK);
         int e=pthread_create(&proxy,&attr,proxy_deliver,x);
@@ -819,20 +946,49 @@ static ABI int32_t raise_exception(GuestThread *t,int32_t signum) {
     return moved ? 0 : ERR(3);
 #else
     install_host_signal();
-    /* Raised on the calling thread: the signal is taken before pthread_kill returns, so the lock
-     * (which the handler's guest code may need) is not held. Another thread is signalled under the
-     * lock its exit takes, so its pthread_t stays valid. */
-    int e;
+    /* Raised on the calling thread: the signal is taken before pthread_sigqueue returns, so the lock
+     * (which the handler's guest code may need) is not held, and the handler always runs. Another
+     * thread is signalled under the lock its exit takes, so its pthread_t stays valid, and again
+     * while it answers from host code: it runs on until it is back in guest code or blocked. One
+     * raise at a time waits for the answers. */
+    static pthread_mutex_t raise_lock=PTHREAD_MUTEX_INITIALIZER;
+    const union sigval value={.sival_ptr=t};
     if (t==current) {
-        e=pthread_kill(t->host,EXCEPTION_HOST_SIGNAL);
-    } else {
-        pthread_mutex_lock(&lock);
-        e=t->finished ? ESRCH : pthread_kill(t->host,EXCEPTION_HOST_SIGNAL);
-        pthread_mutex_unlock(&lock);
+        __atomic_store_n(&t->raise_force,1,__ATOMIC_RELAXED);
+        __atomic_add_fetch(&t->raise_seq,1,__ATOMIC_RELEASE);
+        if (pthread_sigqueue(t->host,EXCEPTION_HOST_SIGNAL,value)) return ERR(3);
+        __atomic_add_fetch(&raised_running,1,__ATOMIC_RELAXED);
+        return 0;
     }
-    if (e) return ERR(3);
-    __atomic_add_fetch(&raised_running,1,__ATOMIC_RELAXED);
-    return 0;
+    pthread_mutex_lock(&raise_lock);
+    int32_t r=0;
+    for (unsigned tries=0;;++tries) {
+        pthread_mutex_lock(&lock);
+        uint32_t seq=0;
+        int e=ESRCH;
+        if (!t->finished) {
+            __atomic_store_n(&t->raise_force,tries>=RAISE_TRIES,__ATOMIC_RELAXED);
+            seq=__atomic_add_fetch(&t->raise_seq,1,__ATOMIC_RELEASE);
+            e=pthread_sigqueue(t->host,EXCEPTION_HOST_SIGNAL,value);
+        }
+        pthread_mutex_unlock(&lock);
+        if (e) { r=ERR(3); break; }
+        if (tries==RAISE_TRIES)
+            printf("Runtime: thread '%s' stayed in host code for a guest exception; handled there\n",t->name);
+        /* Taken at once unless the thread is gone or has the signal blocked: after about a second
+         * it stays queued, to run the handler whenever it is taken (as before answers were awaited). */
+        for (unsigned w=0;__atomic_load_n(&t->raise_done,__ATOMIC_ACQUIRE)!=seq;++w) {
+            if (__atomic_load_n(&t->finished,__ATOMIC_ACQUIRE)) { r=ERR(3); break; }
+            if (w==1064) { __atomic_store_n(&t->raise_force,1,__ATOMIC_RELAXED); break; }
+            if (w<64) sched_yield(); else usleep(1000);
+        }
+        if (r || __atomic_load_n(&t->raise_done,__ATOMIC_ACQUIRE)!=seq) break;
+        if (t->raise_ran) break;
+        if (tries<64) sched_yield(); else usleep(1000);
+    }
+    pthread_mutex_unlock(&raise_lock);
+    if (!r) __atomic_add_fetch(&raised_running,1,__ATOMIC_RELAXED);
+    return r;
 #endif
 }
 
