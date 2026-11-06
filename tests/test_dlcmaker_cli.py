@@ -93,11 +93,10 @@ class Session:
         self.log = []
 
     def clean(self, text):
-        text = text.replace('\r', '')
-        native = str(self.root)
-        for form in (native.replace('\\', '\\\\'), native, self.root.as_posix()):
-            text = text.replace(form, 'W')
-        return text.replace('\\\\', '/').replace('\\', '/')
+        # Separators first: the program prints Windows paths with \ (\\ in JSON), while MSYS2's Python
+        # (first on PATH after msys2-env.sh) spells the temp folder with /.
+        text = text.replace('\r', '').replace('\\\\', '/').replace('\\', '/')
+        return text.replace(self.root.as_posix(), 'W')
 
     def run(self, *args, record=True, usage=False):
         p = subprocess.run([*CMD, *map(str, args)], capture_output=True, env=self.env)
