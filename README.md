@@ -97,6 +97,13 @@ saves when the save folder moves. To get the opening movie back, untick the box 
 **Install** again, or set `skip_opening=0` in `settings.ini`. Even with the movie on, **Options**
 skips it once you have watched it through one time.
 
+**DLC you already keep elsewhere**, for example for shadPS4, doesn't need a second copy: choose that
+folder as the **extra DLC folder** in setup (optional; on Linux setup asks, or pass `--dlc <folder>`).
+shadPS4's own `addcont` folder works as it is, with its `CUSA32853` folder inside. The game reads
+DLC from there as well as from `addcont` in your save folder, and never writes to it. If the same
+DLC is in both, the save folder's copy is used. Custom songs from dlcmaker still go into the save
+folder's `addcont`.
+
 ### On Linux
 
 1. Extract the release anywhere you can write, for example `~/Games/Theatrhythm`:

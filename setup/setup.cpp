@@ -280,7 +280,7 @@ std::wstring strip(const std::wstring& s) {
     return s.substr(a, s.find_last_not_of(ws) - a + 1);
 }
 
-void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save) {
+void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save, const fs::path& dlc) {
 #ifdef _WIN32
     const std::string setup = "theatrhythm-setup.exe", cache = "%LOCALAPPDATA%\\Theatrhythm Final Bar Line";
 #else
@@ -290,11 +290,13 @@ void write_paths(const fs::path& ini, const fs::path& game, const fs::path& save
     write_text(ini, "; Written by " + setup + ". Run it again to change these folders." + nl +
                     "; game: your dump (eboot.bin, sce_module, sce_sys, Media). It is only ever read." + nl +
                     "; save: your saves, and theatrhythm.log in its log folder." + nl +
+                    "; dlc: optional, one more folder of DLC (e.g. shadPS4's addcont), next to save's addcont." + nl +
                     "; Shader caches are shared by every copy of the game: " + cache + nl +
                     "; (cache=<folder> moves them)." + nl +
                     "[paths]" + nl +
                     "game=" + narrow(text(game)) + nl +
-                    "save=" + narrow(text(save)) + nl);
+                    "save=" + narrow(text(save)) + nl +
+                    (dlc.empty() ? std::string() : "dlc=" + narrow(text(dlc)) + nl));
 }
 
 // The key of a settings.ini line ("key=value", gpu/shim/theatrhythm_settings.cpp), lower case; empty
@@ -491,7 +493,7 @@ fs::path user_paths_ini() {
 
 namespace {
 
-// game= and save= of `ini`; relative values are relative to `root`.
+// game=, save= and dlc= of `ini`; relative values are relative to `root`.
 std::optional<Paths> read_paths_file(const fs::path& ini, const fs::path& root) {
     std::error_code ec;
     if (ini.empty() || !fs::is_regular_file(ini, ec))
@@ -515,6 +517,8 @@ std::optional<Paths> read_paths_file(const fs::path& ini, const fs::path& root) 
             paths.game = clean(root / path_of(value));
         else if (key == L"save")
             paths.save = clean(root / path_of(value));
+        else if (key == L"dlc")
+            paths.dlc = clean(root / path_of(value));
     }
     if (paths.game.empty() || paths.save.empty())
         return std::nullopt;
@@ -574,11 +578,17 @@ bool has_saves(const fs::path& save) {
 
 fs::path install(const Options& opt, const Log& log) {
     fs::path root = clean(opt.root), game = game_folder(opt.game), save = clean(opt.save);
+    fs::path dlc = opt.dlc.empty() ? fs::path() : clean(opt.dlc);
     fs::path prepare = root / L"prepare", image = root / L"game", exe = root / kGameExe;
     if (inside(save, game))
         fail(L"Choose a save folder outside the game folder. Setup never writes into the game folder.");
     if (inside(root, game) || inside(game, root))
         fail(L"Keep the game folder and this folder apart (neither inside the other).");
+    std::error_code dlc_ec;
+    if (!dlc.empty() && !fs::is_directory(dlc, dlc_ec))
+        fail(L"The DLC folder does not exist:\n" + text(dlc) + L"\n\nChoose another one, or leave it empty.");
+    if (!dlc.empty() && same_path(dlc, save / L"addcont"))
+        dlc.clear(); // the save folder's addcont is always read
 
     std::error_code ec;
     std::vector<std::wstring> missing;
@@ -659,13 +669,14 @@ fs::path install(const Options& opt, const Log& log) {
             log(L"set      skip_opening=" + value + L" in " + text(ini));
         }
     }
-    write_paths(root / L"paths.ini", game, save);
-    log(L"wrote    paths.ini (game " + text(game) + L", save " + text(save) + L")");
+    write_paths(root / L"paths.ini", game, save, dlc);
+    log(L"wrote    paths.ini (game " + text(game) + L", save " + text(save) +
+        (dlc.empty() ? L"" : L", dlc " + text(dlc)) + L")");
     // The per-user copy, for the next release unpacked elsewhere; the game runs without it.
     if (fs::path user = user_paths_ini(); !user.empty()) {
         try {
             fs::create_directories(user.parent_path(), ec);
-            write_paths(user, clean(game), clean(save));
+            write_paths(user, clean(game), clean(save), dlc);
             log(L"wrote    " + text(user));
         } catch (const Error& e) {
             log(L"skipped  " + text(user) + L" (" + e.message + L")");

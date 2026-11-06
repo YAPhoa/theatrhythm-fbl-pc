@@ -34,6 +34,9 @@ const char* const kUsage =
     "    theatrhythm-dlcmaker build PATH --out DIR  build each DLC into DIR/<label>/\n"
     "    theatrhythm-dlcmaker install PATH --user USER   build into USER/addcont/ (the runner's save folder)\n"
     "\n"
+    "    --dlc DIR (check, build, install): the game's extra DLC folder (paths.ini dlc=), only read: IDs its\n"
+    "    packs use are skipped too.\n"
+    "\n"
     "    theatrhythm-dlcmaker extract GAMESONG FOLDER --game DIR   a game song as a song folder (private tests)\n"
     "\n"
     "The window also uses: info, set, add-file, new-dlc, new-song, stage-data.\n"
@@ -207,31 +210,56 @@ bool report(const std::vector<std::unique_ptr<project::Dlc>>& dlcs, const std::m
     return issues.errors() == 0;
 }
 
-// (kind, id) used by packs already in addcont/ (not the ones being built).
-std::vector<std::pair<std::string, int64_t>> installed(const fs::path& addcont, const std::set<std::string>& labels) {
-    std::vector<std::pair<std::string, int64_t>> used;
-    if (addcont.empty() || !is_dir(addcont))
-        return used;
-    for (const fs::path& p : sorted_dir(addcont)) {
-        if (labels.count(name_of(p)) || !is_file(p / "dlcparam.json"))
+// (kind, id) used by the pack in folder `p`, added to `used`.
+void pack_ids(const fs::path& p, std::vector<std::pair<std::string, int64_t>>& used) {
+    std::string name = py_str(json_parse(read_text(p / "dlcparam.json")).at("PackageName"));
+    if (starts(name, "DLCPACK"))
+        used.emplace_back("package", std::stoll(name.substr(7)));
+    const std::pair<const char*, std::pair<const char*, int64_t>> tables[] = {{"MusicTable", {"song", 160000000}},
+                                                                            {"SeriesTable", {"series", 180000000}}};
+    for (const auto& [table, kb] : tables) {
+        fs::path f = p / to_path(std::string("table_") + table + ".bundle");
+        if (!is_file(f))
             continue;
-        std::string name = py_str(json_parse(read_text(p / "dlcparam.json")).at("PackageName"));
-        if (starts(name, "DLCPACK"))
-            used.emplace_back("package", std::stoll(name.substr(7)));
-        const std::pair<const char*, std::pair<const char*, int64_t>> tables[] = {{"MusicTable", {"song", 160000000}},
-                                                                                {"SeriesTable", {"series", 180000000}}};
-        for (const auto& [table, kb] : tables) {
-            fs::path f = p / to_path(std::string("table_") + table + ".bundle");
-            if (!is_file(f))
+        unity::Bundle b = unity::Bundle::parse(read_file(f));
+        for (auto& o : b.objects()) {
+            if (o.class_id() != unity::kTextAsset)
                 continue;
-            unity::Bundle b = unity::Bundle::parse(read_file(f));
-            for (auto& o : b.objects()) {
-                if (o.class_id() != unity::kTextAsset)
-                    continue;
-                Value rows = msgpack_unpack(o.read().at("m_Script").s).at("LoadTableDataDictionary");
-                for (const Item& it : rows.map)
-                    used.emplace_back(kb.first, py_int(it.k) - kb.second);
-            }
+            Value rows = msgpack_unpack(o.read().at("m_Script").s).at("LoadTableDataDictionary");
+            for (const Item& it : rows.map)
+                used.emplace_back(kb.first, py_int(it.k) - kb.second);
+        }
+    }
+}
+
+// (kind, id) used by packs already in addcont/ (not the ones being built), and by the packs in the game's
+// extra DLC folder `extra` (shadPS4's addcont keeps them one folder deeper, in <title ID>/), which is only
+// read: a pack there that cannot be read is skipped.
+std::vector<std::pair<std::string, int64_t>> installed(const fs::path& addcont, const std::set<std::string>& labels,
+                                                       const fs::path& extra = {}) {
+    std::vector<std::pair<std::string, int64_t>> used;
+    if (!addcont.empty() && is_dir(addcont))
+        for (const fs::path& p : sorted_dir(addcont))
+            if (!labels.count(name_of(p)) && is_file(p / "dlcparam.json"))
+                pack_ids(p, used);
+    if (extra.empty() || !is_dir(extra))
+        return used;
+    std::vector<fs::path> packs;
+    for (const fs::path& p : sorted_dir(extra)) {
+        if (is_file(p / "dlcparam.json"))
+            packs.push_back(p);
+        else if (is_dir(p))
+            for (const fs::path& q : sorted_dir(p))
+                if (is_file(q / "dlcparam.json"))
+                    packs.push_back(q);
+    }
+    for (const fs::path& p : packs) {
+        if (labels.count(name_of(p)))
+            continue;
+        try {
+            pack_ids(p, used);
+        } catch (const std::exception& e) {
+            print("skipped " + u8(p) + " (" + e.what() + ")");
         }
     }
     return used;
@@ -338,7 +366,7 @@ int new_folder_cmd(const fs::path& folder) {
 }
 
 int project_main(const std::vector<std::string>& argv) {
-    Args a = parse_args(argv, {"out", "user", "game", "ffmpeg"});
+    Args a = parse_args(argv, {"out", "user", "game", "ffmpeg", "dlc"});
     if (a.help) {
         print(kUsage);
         return 0;
@@ -377,7 +405,8 @@ int project_main(const std::vector<std::string>& argv) {
         std::set<std::string> labels;
         for (auto& d : dlcs)
             labels.insert(d->label);
-        ids = project::assign_ids(dlcs, installed(addcont, labels));
+        fs::path extra = a.opt.count("dlc") && !a.opt["dlc"].empty() ? py_path(a.opt["dlc"]) : fs::path();
+        ids = project::assign_ids(dlcs, installed(addcont, labels, extra));
     } catch (const Exit& e) {
         issues.error("ids", e.what());
     }

@@ -1,6 +1,6 @@
 /* Offline AppContent provider for the configured base-game profile.
- * Add-ons are the folders under <user>/addcont/ (none by default); no downloads, entitlement or
- * license emulation. */
+ * Add-ons are the folders under <user>/addcont/ and, when one is set, under an extra DLC folder
+ * (none by default); no downloads, entitlement or license emulation. */
 #include "runtime.h"
 #include <dirent.h>
 #include <stdio.h>
@@ -102,35 +102,56 @@ static ABI int32_t param_int(uint32_t id,int32_t *out) {
     printf("Runtime: AppContent parameter %u = %d\n",id,*out);
     return 0;
 }
-/* Installed add-ons: each folder <user>/addcont/<label>/ is one, its name the entitlement label
- * (up to 16 characters), listed in name order and mounted as /addcont<index>. */
+/* Installed add-ons: each folder <user>/addcont/<label>/ is one, then each <extra>/<label>/ whose
+ * label <user>/addcont/ lacks; its name is the entitlement label (up to 16 characters). They are
+ * listed in name order and mounted as /addcont<index>. */
 #define LABEL_SIZE 17
 #define MAX_ADDONS 64
-static char addons[MAX_ADDONS][LABEL_SIZE];
+typedef struct { char label[LABEL_SIZE]; char folder[700]; } Addon;
+static Addon addons[MAX_ADDONS];
 static unsigned addon_count, addons_scanned;
-static int addon_order(const void *a,const void *b) { return strcmp(a,b); }
-static void scan_addons(void) {
-    if (addons_scanned) return;
-    addons_scanned=1;
-    char path[600]; snprintf(path,sizeof(path),"%s/addcont",runtime_file_user_dir());
+static char extra_dir[600];
+static int addon_order(const void *a,const void *b) { return strcmp(((const Addon *)a)->label,((const Addon *)b)->label); }
+static int find_addon(const char *label) {
+    for (unsigned i=0;i<addon_count;++i) if (!strncmp(label,addons[i].label,LABEL_SIZE-1)) return (int)i;
+    return -1;
+}
+static int is_folder(const char *path) {
+    DIR *d=opendir(path);
+    if (!d) return 0;
+    closedir(d); return 1;
+}
+/* An extra DLC folder holds the add-ons, or (as shadPS4's addcont folder does) a <title ID>/
+ * folder that holds them. */
+void runtime_content_extra_dir(const char *folder,const char *title_id) {
+    if (!folder || !folder[0]) { extra_dir[0]=0; return; }
+    char titled[600];
+    if (title_id && title_id[0] && (size_t)snprintf(titled,sizeof(titled),"%s/%s",folder,title_id)<sizeof(titled) && is_folder(titled))
+        snprintf(extra_dir,sizeof(extra_dir),"%s",titled);
+    else snprintf(extra_dir,sizeof(extra_dir),"%s",folder);
+    printf("Runtime: extra DLC folder %s%s\n",extra_dir,is_folder(extra_dir) ? "" : " (missing)");
+}
+static void scan_folder(const char *path) {
     DIR *d=opendir(path);
     if (!d) return;
     for (struct dirent *e; addon_count<MAX_ADDONS && (e=readdir(d));) {
         size_t n=strlen(e->d_name);
-        if (e->d_name[0]=='.' || n>=LABEL_SIZE) continue;
-        char folder[700]; snprintf(folder,sizeof(folder),"%s/%s",path,e->d_name);
-        DIR *sub=opendir(folder);
-        if (!sub) continue;
-        closedir(sub);
-        memcpy(addons[addon_count++],e->d_name,n+1);
+        if (e->d_name[0]=='.' || n>=LABEL_SIZE || find_addon(e->d_name)>=0) continue;
+        Addon *a=&addons[addon_count];
+        if ((size_t)snprintf(a->folder,sizeof(a->folder),"%s/%s",path,e->d_name)>=sizeof(a->folder) || !is_folder(a->folder)) continue;
+        memcpy(a->label,e->d_name,n+1);
+        ++addon_count;
     }
     closedir(d);
-    qsort(addons,addon_count,LABEL_SIZE,addon_order);
-    for (unsigned i=0;i<addon_count;++i) printf("Runtime: add-on %s installed (%s/%s)\n",addons[i],path,addons[i]);
 }
-static int find_addon(const char *label) {
-    for (unsigned i=0;i<addon_count;++i) if (!strncmp(label,addons[i],LABEL_SIZE-1)) return (int)i;
-    return -1;
+static void scan_addons(void) {
+    if (addons_scanned) return;
+    addons_scanned=1;
+    char path[600]; snprintf(path,sizeof(path),"%s/addcont",runtime_file_user_dir());
+    scan_folder(path);
+    if (extra_dir[0]) scan_folder(extra_dir);
+    qsort(addons,addon_count,sizeof(*addons),addon_order);
+    for (unsigned i=0;i<addon_count;++i) printf("Runtime: add-on %s installed (%s)\n",addons[i].label,addons[i].folder);
 }
 /* sceAppContentGetAddcontInfoList(service, list, capacity, hits): OrbisAppContentAddcontInfo is
  * the entitlement label (17 bytes, 3 padding) and the download status (4 = installed). A null
@@ -143,7 +164,7 @@ static ABI int32_t addon_list(uint32_t service,void *list,uint32_t capacity,uint
     unsigned n=list && capacity<addon_count ? capacity : addon_count;
     if (list) for (unsigned i=0;i<n;++i) {
         unsigned char *info=(unsigned char *)list+24*i; uint32_t installed=4;
-        memset(info,0,24); memcpy(info,addons[i],strlen(addons[i])); memcpy(info+20,&installed,4);
+        memset(info,0,24); memcpy(info,addons[i].label,strlen(addons[i].label)); memcpy(info+20,&installed,4);
     }
     if (hits) *hits=list ? n : addon_count;
     ++lists; return 0;
@@ -194,15 +215,14 @@ static ABI int32_t addon_mount(uint32_t service,const char *label,char *mount) {
     scan_addons();
     int i=find_addon(label);
     if (i<0) return NOT_FOUND;
-    char guest[16], host[700];
+    char guest[16]; const char *host=addons[i].folder;
     snprintf(guest,sizeof(guest),"/addcont%d",i);
-    snprintf(host,sizeof(host),"%s/addcont/%s",runtime_file_user_dir(),addons[i]);
     if (runtime_file_mount(guest,host)) return NOT_FOUND;
     char assets[720]; snprintf(assets,sizeof(assets),"%s/StreamingAssets",host);
     DIR *d=opendir(assets);
     if (d) { closedir(d); overlay_streaming_assets(host,""); }
     memset(mount,0,16); memcpy(mount,guest,strlen(guest));
-    printf("Runtime: add-on %s mounted at %s\n",addons[i],guest);
+    printf("Runtime: add-on %s mounted at %s\n",addons[i].label,guest);
     return 0;
 }
 /* sceAppContentAddcontUnmount(mount): drops the mount; the folder stays listed. */

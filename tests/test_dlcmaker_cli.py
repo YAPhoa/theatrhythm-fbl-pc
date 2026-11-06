@@ -93,11 +93,10 @@ class Session:
         self.log = []
 
     def clean(self, text):
-        text = text.replace('\r', '')
-        native = str(self.root)
-        for form in (native.replace('\\', '\\\\'), native, self.root.as_posix()):
-            text = text.replace(form, 'W')
-        return text.replace('\\\\', '/').replace('\\', '/')
+        # Separators first: the program prints Windows paths with \ (\\ in JSON), while MSYS2's Python
+        # (first on PATH after msys2-env.sh) spells the temp folder with /.
+        text = text.replace('\r', '').replace('\\\\', '/').replace('\\', '/')
+        return text.replace(self.root.as_posix(), 'W')
 
     def run(self, *args, record=True, usage=False):
         p = subprocess.run([*CMD, *map(str, args)], capture_output=True, env=self.env)
@@ -219,6 +218,26 @@ class CommandLineTests(unittest.TestCase):
         with wave.open(str(song)) as w:
             self.assertEqual((w.getnchannels(), w.getsampwidth(), w.getframerate()), (2, 2, 48000))
             self.assertEqual(w.readframes(w.getnframes()), want)
+
+    def test_ids_used_in_the_extra_dlc_folder_are_skipped(self):
+        # --dlc: the game's extra DLC folder, shadPS4's layout (<title ID>/<label>/): only read.
+        extra = self.root / 'extra'
+        used = extra / 'CUSA32853' / 'Other'
+        used.mkdir(parents=True)
+        (used / 'dlcparam.json').write_text('{"Version":1,"PackageName":"DLCPACK0000100","HasContents":true}')
+        broken = extra / 'CUSA32853' / 'Broken'
+        broken.mkdir()
+        (broken / 'dlcparam.json').write_text('not json')
+        pack = self.root / 'ws' / 'Pack Ü 1'
+        code, text, err = self.session.run('check', pack, record=False)
+        self.assertEqual(code, 0, text + err)
+        self.assertIn('DLCPACK0000100', text)
+        code, text, err = self.session.run('check', pack, '--dlc', extra, record=False)
+        self.assertEqual(code, 0, text + err)
+        self.assertIn('DLCPACK0000101', text)
+        self.assertNotIn('DLCPACK0000100', text)
+        self.assertIn('skipped', text)
+        self.assertEqual((used / 'dlcparam.json').read_text(), '{"Version":1,"PackageName":"DLCPACK0000100","HasContents":true}')
 
     @unittest.skipUnless(GAME and (GAME / 'Media/StreamingAssets/aa/catalog.json').is_file(),
                          'needs the game dump (THEATRHYTHM_GAME_DIR)')
