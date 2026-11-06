@@ -1094,6 +1094,14 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
 
 } // namespace TheatrhythmOverlay
 
+// A message from the runtime to the player (src/runtime_display_page.c: Display Settings is on F10
+// alone in a game version it cannot patch).
+extern "C" void theatrhythm_gpu_notice(const char* text, int milliseconds) {
+    if (text && text[0]) {
+        TheatrhythmOverlay::ShowNotice(text, milliseconds);
+    }
+}
+
 // Called by the runtime (src/runtime_services.c) when the game unlocks a trophy: its name as a
 // notice in the corner.
 extern "C" void theatrhythm_gpu_toast_trophy(int id, const char* title, const char* detail, const unsigned char* png,

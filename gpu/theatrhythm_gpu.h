@@ -81,6 +81,8 @@ unsigned theatrhythm_gpu_symbol_count(void);
 unsigned long long theatrhythm_gpu_copy_yields(void);
 /* Frames handed to the presenter since start (hang dump). */
 unsigned long long theatrhythm_gpu_flips(void);
+/* A notice in the corner for `milliseconds` (any thread; the runtime's messages to the player). */
+void theatrhythm_gpu_notice(const char *text, int milliseconds);
 /* Trophy unlocked (any thread): its name as a notice in the corner. The other arguments are kept
  * for the runtime's call: id, description and PNG icon. */
 void theatrhythm_gpu_toast_trophy(int id, const char *title, const char *detail, const unsigned char *png,

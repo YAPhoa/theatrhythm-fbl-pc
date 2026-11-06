@@ -733,10 +733,13 @@ int main(int argc, char **argv) {
             if (runtime_file_mount(guest, eq + 1)) { fprintf(stderr, "Cannot mount %s: too many mounts or host path longer than 511 characters\n", mounts[i]); return 1; }
             printf("Runtime: mount %s -> %s\n", guest, eq + 1);
         }
-        char sfo[4096], id[16]="";
+        char sfo[4096], id[16]="", title_id[16]="", version[16]="";
         snprintf(sfo,sizeof(sfo),"%s/sce_sys/param.sfo",app0);
         if (sfo_value(sfo,"INSTALL_DIR_SAVEDATA",id,sizeof(id),NULL) || sfo_value(sfo,"TITLE_ID",id,sizeof(id),NULL))
             runtime_savedata_configure(id);
+        sfo_value(sfo,"TITLE_ID",title_id,sizeof(title_id),NULL);
+        sfo_value(sfo,"APP_VER",version,sizeof(version),NULL); /* the patch's version (VERSION stays the disc's) */
+        runtime_game_identify(title_id,version,app0,argv[1]);
     }
     theatrhythm_gpu_register_kernel();
 #ifdef _WIN32
@@ -996,6 +999,9 @@ int main(int argc, char **argv) {
     if (!cpu_only) {
         unsigned char *hook_stub = stubs + stub_area;
         for (uint64_t m = 0; m < module_count; ++m)
+            if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx"))
+                runtime_game_code_open(image + modules[m].base, modules[m].size, modules[m].seg0_size, app0);
+        for (uint64_t m = 0; m < module_count; ++m)
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_display_page_install(image, modules[m].base, hook_stub, page_size, monitor_icon))
                 protect(hook_stub, page_size, 5);
@@ -1009,6 +1015,7 @@ int main(int argc, char **argv) {
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_dlc_bonus_install(image, modules[m].base, bonus_stub, page_size))
                 protect(bonus_stub, page_size, 5);
+        runtime_game_code_close();
     }
 #ifdef _WIN32
     printf("Guest TCB loads redirected to the TEB TLS slot: %" PRIu64 "\n", patch_tcb_loads(segments, ns));
