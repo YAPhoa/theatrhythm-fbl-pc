@@ -35,6 +35,14 @@ public:
     /// Any thread: shows the window, created hidden so that it does not stand black while Vulkan
     /// starts (the presenter calls it once it can draw).
     void Show() { show_requested.store(true, std::memory_order_release); }
+    /// True once Show() has taken effect: the window is on screen and GetWidth/GetHeight give its
+    /// shown size (the display's, when it opens borderless or fullscreen).
+    bool IsShown() const { return shown_done.load(std::memory_order_acquire); }
+    /// Any thread: once the first frames are drawn, lets the shown window be seen (Windows shows it
+    /// cloaked until then; elsewhere this does nothing).
+    void Reveal() { reveal_requested.store(true, std::memory_order_release); }
+    /// True once the window can be seen (after Reveal on Windows, as soon as it is shown elsewhere).
+    bool IsRevealed() const { return revealed.load(std::memory_order_acquire); }
     /// Keyboard text entry for the system IME dialog; typed text shows in the title bar.
     void BeginTextInput(const std::string& initial, const std::string& prompt);
     /// 0 while typing, 1 confirmed (Enter), 2 cancelled (Escape); text is UTF-8.
@@ -44,8 +52,13 @@ private:
     std::atomic<s32> width, height;
     std::atomic<bool> is_open{true};
     std::atomic<bool> is_minimized{false};
-    std::atomic<bool> show_requested{false};
+    std::atomic<bool> show_requested{false}, shown_done{false}, reveal_requested{false}, revealed{false};
     bool shown{};
+#ifdef _WIN32
+    bool Cloak(bool on);
+    bool cloaked{};
+    u64 shown_at{};
+#endif
     std::mutex text_mutex;
     bool text_requested{}, text_active{};
     int display_mode = -1; ///< applied TheatrhythmSettings display mode (window thread)
