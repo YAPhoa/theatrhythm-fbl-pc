@@ -173,7 +173,7 @@ taps a trigger and either stick slides, so each hand gets a stick and taps:
 first). During a song it pauses the song first, and No carries on from the same moment after a
 3-2-1 countdown. Yes closes the game, after any save in progress is written. It doesn't open over
 another of the game's windows or during a scene change: a note says so. Alt+F4 still closes the
-game at once. Share on an Xbox Series pad asks the same, unless `pad_map` gives it a PS4 button.
+game at once.
 **F10** opens the Display Settings panel.
 
 Keys are physical positions, so they're the same on AZERTY or QWERTZ keyboards. To change them,
