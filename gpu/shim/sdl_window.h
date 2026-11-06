@@ -32,6 +32,9 @@ public:
     bool IsOpen() const { return is_open.load(std::memory_order_relaxed); }
     /// Processes pending window events. Returns false once the user closed the window.
     bool PollEvents();
+    /// Any thread: shows the window, created hidden so that it does not stand black while Vulkan
+    /// starts (the presenter calls it once it can draw).
+    void Show() { show_requested.store(true, std::memory_order_release); }
     /// Keyboard text entry for the system IME dialog; typed text shows in the title bar.
     void BeginTextInput(const std::string& initial, const std::string& prompt);
     /// 0 while typing, 1 confirmed (Enter), 2 cancelled (Escape); text is UTF-8.
@@ -41,6 +44,8 @@ private:
     std::atomic<s32> width, height;
     std::atomic<bool> is_open{true};
     std::atomic<bool> is_minimized{false};
+    std::atomic<bool> show_requested{false};
+    bool shown{};
     std::mutex text_mutex;
     bool text_requested{}, text_active{};
     int display_mode = -1; ///< applied TheatrhythmSettings display mode (window thread)

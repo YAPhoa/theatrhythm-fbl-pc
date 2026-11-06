@@ -35,6 +35,14 @@ void SetShaderPrefetch(u32 done, u32 total);
 /// budget spent). A lower-right note shows while any run and 2 s after.
 void NoteShaderCompiles(u32 pending, u32 started, u32 waits);
 
+/// Before the presenter exists: the game's start-up picture (sce_sys/pic1.png), drawn under the
+/// rest until the game's frames show something, then faded out, as the PS4 does while a game starts.
+void SetSplash(TheatrhythmPng::Image picture);
+/// The start-up picture is up and waits for a game frame that is not black.
+bool SplashWaiting();
+/// Any thread, for each game frame read back while SplashWaiting: whether it shows a picture.
+void NoteSplashFrame(bool picture);
+
 /// Whether anything is drawn this frame.
 bool Visible();
 

@@ -94,6 +94,14 @@ std::atomic<int> choice_result{-1}; // -1 open, -2 cancelled, else the chosen in
 std::vector<TheatrhythmPng::Image> choice_pictures;
 std::vector<ImTextureData*> choice_textures, choice_retired;
 std::atomic<bool> choice_retiring{false};
+// The start-up picture (SetSplash): decoded at start, made a texture on the present thread (both
+// guarded by imgui_mutex), retired through choice_retired once faded out.
+enum SplashState : int { SplashNone, SplashShown, SplashFading, SplashDone };
+constexpr s64 kSplashFadeMs = 400, kSplashMaxMs = 60000;
+TheatrhythmPng::Image splash_picture;
+ImTextureData* splash_texture = nullptr;
+std::atomic<int> splash_state{SplashNone}, splash_lit_frames{0};
+std::atomic<s64> splash_since{0}, splash_fade_from{0};
 std::chrono::steady_clock::time_point last_present{};
 // The Display Settings panel (F10, or the Options menu's Display Settings button). The row and
 // dirty flag are guarded by imgui_mutex; the values live in TheatrhythmSettings.
@@ -747,6 +755,60 @@ void UpdateChoiceTextures() {
     choice_retiring = !choice_retired.empty();
 }
 
+void StartSplashFade(const char* why) {
+    int shown = SplashShown;
+    splash_fade_from = NowMs();
+    if (splash_state.compare_exchange_strong(shown, SplashFading)) {
+        std::printf("Splash: %s after %.1f s\n", why, double(splash_fade_from - splash_since) / 1000.0);
+    }
+}
+
+// imgui_mutex held, before NewFrame and UpdateChoiceTextures: the picture becomes a texture, and
+// one faded out is retired.
+void UpdateSplashTexture() {
+    if (!splash_picture.rgba.empty()) {
+        splash_texture = IM_NEW(ImTextureData)();
+        splash_texture->Create(ImTextureFormat_RGBA32, splash_picture.width, splash_picture.height);
+        std::memcpy(splash_texture->GetPixels(), splash_picture.rgba.data(), splash_picture.rgba.size());
+        ImGui::RegisterUserTexture(splash_texture);
+        splash_picture = {};
+    }
+    const int state = splash_state;
+    if (state == SplashShown && NowMs() - splash_since > kSplashMaxMs) {
+        StartSplashFade("no game picture yet, hidden");
+    }
+    if (state == SplashFading && NowMs() - splash_fade_from >= kSplashFadeMs) {
+        splash_state = SplashDone;
+        if (splash_texture) {
+            splash_texture->WantDestroyNextFrame = true;
+            choice_retired.push_back(splash_texture);
+            choice_retiring = true;
+            splash_texture = nullptr;
+        }
+    }
+}
+
+// The start-up picture fitted to the window (black bars like the game's frame), under the rest.
+void Splash() {
+    const int state = splash_state;
+    if (!splash_texture || (state != SplashShown && state != SplashFading)) {
+        return;
+    }
+    float alpha = 1.0f;
+    if (state == SplashFading) {
+        alpha = std::clamp(1.0f - float(NowMs() - splash_fade_from) / float(kSplashFadeMs), 0.0f, 1.0f);
+    }
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float w = float(splash_texture->Width), h = float(splash_texture->Height);
+    const float scale = std::min(viewport->Size.x / w, viewport->Size.y / h);
+    const ImVec2 size(w * scale, h * scale);
+    const ImVec2 p0(viewport->Pos.x + (viewport->Size.x - size.x) * 0.5f,
+                    viewport->Pos.y + (viewport->Size.y - size.y) * 0.5f);
+    ImGui::GetBackgroundDrawList()->AddImage(splash_texture->GetTexRef(), p0, ImVec2(p0.x + size.x, p0.y + size.y),
+                                             ImVec2(0, 0), ImVec2(1, 1),
+                                             IM_COL32(255, 255, 255, int(alpha * 255.0f + 0.5f)));
+}
+
 // The save list takes the keys and buttons that move and confirm; the rest stays with the game
 // (held neutral by CapturesInput).
 bool HandleChoiceEvent(const SDL_Event& event) {
@@ -779,6 +841,7 @@ bool HandleChoiceEvent(const SDL_Event& event) {
 }
 
 void DrawWindows() {
+    Splash();
     if (loading) {
         LoadingScreen();
     }
@@ -922,8 +985,32 @@ void SetLoading(bool active, u32 done, u32 total) {
     loading = active;
 }
 
+void SetSplash(TheatrhythmPng::Image picture) {
+    std::scoped_lock lock{imgui_mutex};
+    if (picture.rgba.empty() || splash_state != SplashNone) {
+        return;
+    }
+    splash_picture = std::move(picture);
+    splash_since = NowMs();
+    splash_state = SplashShown;
+}
+
+bool SplashWaiting() {
+    return splash_state == SplashShown;
+}
+
+// Two picture frames in a row: a single stray one (a buffer not yet cleared) keeps the splash.
+void NoteSplashFrame(bool picture) {
+    if (!picture) {
+        splash_lit_frames = 0;
+    } else if (++splash_lit_frames >= 2) {
+        StartSplashFade("game picture");
+    }
+}
+
 bool Visible() {
-    return initialized && (loading || background_total || PrefetchActive() || CompileNoteActive() ||
+    const int splash = splash_state;
+    return initialized && (splash == SplashShown || splash == SplashFading || loading ||background_total || PrefetchActive() || CompileNoteActive() ||
                            text_entry_active || choice_active || choice_retiring || NoticeActive() || display_open);
 }
 
@@ -978,6 +1065,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         base_scale = scale;
     }
 
+    UpdateSplashTexture();
     UpdateChoiceTextures();
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();

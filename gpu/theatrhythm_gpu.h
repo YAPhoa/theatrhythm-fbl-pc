@@ -13,6 +13,7 @@ typedef struct {
     uint32_t sdk_version;       /* from the eboot's procparam */
     uint32_t psf_attributes;    /* param.sfo ATTRIBUTE */
     int32_t width, height;      /* initial window size */
+    const char *splash;         /* start-up picture (the dump's sce_sys/pic1.png), NULL: none */
 } TheatrhythmGpuConfig;
 /* Registers kernel event queues (needed with or without graphics). */
 void theatrhythm_gpu_register_kernel(void);
