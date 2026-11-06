@@ -89,7 +89,8 @@ as `--dlc` (`THEATRHYTHM_DLC_DIR` overrides it), and `src/runtime_content.c` lis
 shadPS4's `addcont` does) whose label the save folder lacks. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
-window: `theatrhythm-setup.exe --help`.
+window: `theatrhythm-setup.exe --help`. The setup's Patches section is saved in `paths.ini` too
+(`party_limit`), since `settings.ini` has a copy in the save folder that would win over the setup's.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
 that `run.py` would pass (`src/launch.c`). Without a console its output goes to
@@ -184,6 +185,17 @@ quit event as closing the window, once no save is mounted, backed up or written
 (`WindowMain::Update`: a second window of the same scene throws "An item with the same key has
 already been added", and an exception through a hook stub ends the game) or when
 `WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
+
+The game keeps five party sets; `src/runtime_party_limit.c` makes it fifteen, in memory and all or
+nothing, the dump untouched. The list grows to 15 default sets after the constructor and the save
+reader, `_partyNumber`'s range and the `Mathf.Repeat(n, 5)` wraps of the selectors go to 15, and the
+preload and change detection cover the new sets. Places built for five stay five: Edit Party's dots
+and illustrations show the index modulo 5, and Multi Battle clamps its set to the first five. The
+numbers come from a `TermInfo.GetTranslation` hook, since only `Common/SetNo/1` to `5` exist.
+`party_limit=0` in `paths.ini` (or `THEATRHYTHM_PARTY_LIMIT=0`) leaves the game at five, and its next
+save then writes only those five, dropping sets 6-15. The sites are found by name like the patches'
+above, and the classes and the runtime's allocators, which have no names, come from the operands of the
+code there. Only 1.00's code has been checked: a version whose code differs keeps five sets.
 
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
