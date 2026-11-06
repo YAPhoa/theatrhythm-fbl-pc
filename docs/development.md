@@ -151,7 +151,9 @@ reaction callback. The Display page's translation hook swaps its text term
 target. During a song (`MusicStageMainLoop::updateState` ran this frame) it first calls
 `MusicStageMainLoop.callSystemPause(true)`, the pause the PS4's system menu causes: the song and its
 music stand still without the game's pause menu, which would take the keys under the window (a
-Cross on No once chose its Retry Song). No ends that pause and the song goes on; Yes pushes the same
+Cross on No once chose its Retry Song). No ends that pause, and a hook on the synchronous
+`MusicStageMainLoop::resume(2)` sets its `countdown` argument, which the end of a system pause passes
+as false, so the song goes on after the 3-2-1 of Resume Song (`ResumeCounter`). Yes pushes the same
 quit event as closing the window, once no save is mounted, backed up or written
 (`runtime_savedata_busy`, at most 10 s). It does not open while another game window updates
 (`WindowMain::Update`: a second window of the same scene throws "An item with the same key has

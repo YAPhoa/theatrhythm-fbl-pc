@@ -3,7 +3,7 @@
  * when WindowManager.IsOpenableSystemWindow() allows. During a song it first pauses the song as the
  * PS4's system menu does (MusicStageMainLoop.callSystemPause: no pause menu, which would take the
  * keys under the window) and opens the window once the song stands; No lets the song go on the same
- * way. The window is the Language page's "Restore default settings?"
+ * way, after the 3-2-1 its Resume Song shows (MusicStageMainLoop::resume with countdown). The window is the Language page's "Restore default settings?"
  * (ConfigLanguageMenuEditPartsMain::openResetSettingWindow: one CommonOnlyText window with No and
  * Yes, No focused), called with the lifecycle object instead of the page; the page is only its
  * reaction callback's target. The Display page's translation hook shows this text in it
@@ -22,7 +22,7 @@
 typedef struct { uint64_t rdi, rsi, rdx, rcx, r8, r9, rax, rdx_out; } HookRegs;
 typedef int (ABI *HookFn)(HookRegs *regs);
 
-enum { H_LIFECYCLE, H_WINDOW, H_STAGE, H_REACTION, C_OPEN, C_OPENABLE, C_SYSTEM_PAUSE, SITES };
+enum { H_LIFECYCLE, H_WINDOW, H_STAGE, H_REACTION, H_RESUME, C_OPEN, C_OPENABLE, C_SYSTEM_PAUSE, SITES };
 static const GameSite sites[SITES]={
     {"Gummi.Device.PS4.ProcessLifecyclePS4::Update", 0, 0, 0,
      {"55 48 89 e5 41 56 53 | 48 8b 0d ?? ?? ?? ?? 8a 5f 38 49 89 fe 48 85 c9 75 1f"}},
@@ -37,6 +37,9 @@ static const GameSite sites[SITES]={
       "e8 ?? ?? ?? ?? 48 8d 3d ?? ?? ?? ?? e8 ?? ?? ?? ?? c6 05 ?? ?? ?? ?? 01 48 85 db 74 2d 48 8b 05 "
       "?? ?? ?? ?? 48 8b 0b 0f b6 90 2c 01 00 00 38 91 2c 01 00 00 72 14 48 8b 89 c8 00 00 00 48 39 44 "
       "d1 f8 75 06 83 7b 18 00 74 0b"}},
+    /* resume(this, ?, countdown): the synchronous one; the end of a system pause passes countdown false */
+    {"Game.Scene.MusicStage.MusicStageMainLoop::resume(2)", 0, 0, 0,
+     {"55 48 89 e5 41 57 41 56 53 50 | 80 3d ?? ?? ?? ?? 00 41 89 d6 49 89 ff 75 13"}},
     {"Game.Scene.Config.ConfigLanguageMenuEditPartsMain::openResetSettingWindow", 0, 0, 0,
      {"55 48 89 e5 41 57 41 56 41 55 41 54 53 50 80 3d ?? ?? ?? ?? 00 49 89 fd"}},
     {"Game.WindowManager::IsOpenableSystemWindow", 0, 0, 0,
@@ -52,6 +55,7 @@ static GameCode code_at[SITES];
 static void *target;          /* the lifecycle object the open window's callback goes to */
 static void *stage;           /* the music stage loop updating now, if any */
 static void *paused_stage;    /* the one the prompt paused */
+static void *counting_stage;  /* the one whose next resume counts 3-2-1 */
 static volatile int asking;   /* that window is open */
 static int ending;            /* Yes chosen: the game ends once no save is busy */
 /* Frames (lifecycle updates), the last one a game window or a music stage updated in, the one the
@@ -71,6 +75,23 @@ static ABI int window_update(HookRegs *r) { (void)r; window_frame=frame; return 
 /* MusicStageMainLoop::updateState(this): a music stage runs (a song, or its pause screen). */
 static ABI int stage_update(HookRegs *r) { stage=(void *)r->rdi; stage_frame=frame; return 0; }
 static void system_pause(void *loop, int on) { ((void (ABI *)(void *, int32_t, void *))CODE(C_SYSTEM_PAUSE))(loop,on,NULL); }
+/* Lets the song the prompt paused go on, after the game's 3-2-1 as its pause menu's Resume Song. */
+static void end_song_pause(void) {
+    if (!paused_stage) return;
+    counting_stage=paused_stage;
+    system_pause(paused_stage,0);
+    paused_stage=NULL;
+}
+/* MusicStageMainLoop::resume(this, ?, countdown): the end of the system pause the prompt started
+ * counts down (ResumeCounter) like Resume Song instead of going on at once. */
+static ABI int stage_resume(HookRegs *r) {
+    if (counting_stage && (void *)r->rdi==counting_stage) {
+        counting_stage=NULL;
+        r->rdx=1;
+        puts("Exit prompt: the song goes on after its countdown");
+    }
+    return 0;
+}
 
 /* Opens the window for `lifecycle`, unless another game window is open (the game's own check does
  * not count them, and a second window of the same scene throws through this hook, which ends the
@@ -80,13 +101,13 @@ static void open_prompt(void *lifecycle, int over_pause) {
     if (frame-window_frame<=2) {
         puts("Exit prompt: not now (a window is open)");
         theatrhythm_gpu_notice("Close this window first to exit with F4",3000);
-        if (over_pause) { system_pause(paused_stage,0); paused_stage=NULL; }
+        if (over_pause) end_song_pause();
         return;
     }
     if (!(((uint8_t (ABI *)(void *))CODE(C_OPENABLE))(NULL)&1)) { /* WindowManager.IsOpenableSystemWindow() */
         puts("Exit prompt: not now (the game allows no window here)");
         theatrhythm_gpu_notice("F4 can't exit here: try again in a moment",3000);
-        if (over_pause) { system_pause(paused_stage,0); paused_stage=NULL; }
+        if (over_pause) end_song_pause();
         return;
     }
     target=lifecycle; asking=1;
@@ -138,7 +159,7 @@ static ABI int reaction(HookRegs *r) {
             puts(runtime_savedata_busy() ? "Exit prompt: Yes, waiting for the save to finish" : "Exit prompt: Yes");
         } else {
             puts("Exit prompt: No");
-            if (paused_stage) { system_pause(paused_stage,0); paused_stage=NULL; }
+            end_song_pause();
         }
     }
     r->rax=0;
@@ -185,12 +206,13 @@ static unsigned char *emit_stub(unsigned char *p, HookFn fn, unsigned char *func
 int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int display_page) {
     module=image+module_base;
     if (!display_page) { puts("Exit prompt: off (needs the Display page's translation hook)"); return -1; }
-    if (runtime_game_code_find(sites,SITES,code_at,"Exit prompt") || size<4*STUB_SIZE) {
+    if (runtime_game_code_find(sites,SITES,code_at,"Exit prompt") || size<5*STUB_SIZE) {
         puts("Exit prompt: off, F4 does nothing in this game version");
         return -1;
     }
     static const struct { int site; HookFn fn; } hooks[]={
-        {H_LIFECYCLE,lifecycle_update},{H_WINDOW,window_update},{H_STAGE,stage_update},{H_REACTION,reaction}};
+        {H_LIFECYCLE,lifecycle_update},{H_WINDOW,window_update},{H_STAGE,stage_update},{H_REACTION,reaction},
+        {H_RESUME,stage_resume}};
     unsigned char *p=stubs;
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
         unsigned char *function=CODE(hooks[i].site);
