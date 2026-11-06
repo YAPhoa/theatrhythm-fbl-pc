@@ -250,6 +250,12 @@ save then writes only those five, dropping sets 6-15. The sites are found by nam
 above, and the classes and the runtime's allocators, which have no names, come from the operands of the
 code there. Only 1.00's code has been checked: a version whose code differs keeps five sets.
 
+The set number in the song setup window is a `UnityEngine.UI.Text` with vertical overflow "Truncate"
+in a box barely taller than its font. At 4K (canvas scale 2) the text generator returned no lines for
+it, so the number was blank on any GPU. `src/runtime_party_label.c` sets that label to "Overflow"
+before its text is set; this is separate from the party limit patch. Its sites are found by name too,
+also checked only on 1.00's code.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).
