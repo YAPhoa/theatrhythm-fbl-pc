@@ -572,13 +572,15 @@ static int cpu_supported(char *missing, size_t size) {
     return 1;
 }
 
-/* settings.ini button_icons: the icon files scripts/button_icons.py wrote next to boot.bin. */
+/* settings.ini button_icons: the icon and pad files scripts/button_icons.py and
+ * scripts/controller_pad.py wrote next to boot.bin. */
 static void configure_button_icons(const char *boot) {
     const char *slash=strrchr(boot,'/'), *back=strrchr(boot,'\\');
     if (back && (!slash || back>slash)) slash=back;
-    char folder[512];
-    snprintf(folder,sizeof(folder),"%.*sbutton_icons",slash ? (int)(slash-boot+1) : 0,boot);
-    runtime_button_icons_configure(folder,theatrhythm_button_icons());
+    char icons[512], pad[512];
+    snprintf(icons,sizeof(icons),"%.*sbutton_icons",slash ? (int)(slash-boot+1) : 0,boot);
+    snprintf(pad,sizeof(pad),"%.*scontroller_pad",slash ? (int)(slash-boot+1) : 0,boot);
+    runtime_button_icons_configure(icons,pad,theatrhythm_button_icons());
 }
 
 /* Display Settings icon in the Options menu: the Config atlas bundle scripts/config_icon.py wrote
@@ -914,9 +916,10 @@ int main(int argc, char **argv) {
     if (!isa_table && cpu_missing_sets) { printf("STOP: this CPU lacks %s and no rewrite table matches the image\n", missing); return 20; }
     /* The stubs follow the image in the same low mapping (rel32 jmps reach them). */
     size_t stub_area = isa_table ? round_page(isa_stub_area_size(isa_table)) : 0;
-    /* Three more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
-     * the field walk's stub (runtime_field_walk.c) and the DLC bonus row's (runtime_dlc_bonus.c). */
-    image = allocate(round_page(size) + stub_area + 3 * page_size);
+    /* Four more pages after them: the Display Settings page's hook stubs (runtime_display_page.c),
+     * the field walk's stub (runtime_field_walk.c), the DLC bonus row's (runtime_dlc_bonus.c) and
+     * the Xbox pad's (runtime_xbox_pad.c). */
+    image = allocate(round_page(size) + stub_area + 4 * page_size);
     printf("Runtime: guest image at %p (guest offsets are relative to it)\n", (void *)image);
     unsigned char *stubs = image + round_page(size);
     if (fread(image, 1, size, f) != size || fgetc(f) != EOF) fail("incorrect memory image size");
@@ -1012,6 +1015,11 @@ int main(int argc, char **argv) {
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_dlc_bonus_install(image, modules[m].base, bonus_stub, page_size))
                 protect(bonus_stub, page_size, 5);
+        unsigned char *pad_stub = bonus_stub + page_size;
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
+                !runtime_xbox_pad_install(image, modules[m].base, pad_stub, page_size))
+                protect(pad_stub, page_size, 5);
         runtime_game_code_close();
     }
 #ifdef _WIN32

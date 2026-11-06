@@ -72,11 +72,11 @@ def image_is_current(game, out):
     linked = out / 'boot-linked.bin'
     if not linked.is_file() or not (out / 'content.bin').is_file():
         return False
-    if not (out / 'button_icons').is_dir() or not (out / 'config_icon').is_dir():
+    if not all((out / folder).is_dir() for folder in ('button_icons', 'config_icon', 'controller_pad')):
         return False
     built = linked.stat().st_mtime
     sources = [game / name for name in IMAGE_INPUTS] + list((PORT / 'scripts').glob('*.py'))
-    sources += [path for folder in ('button_icons', 'config_icon') for path in (PORT / 'assets' / folder).glob('*.bc7')]
+    sources += [path for folder in ('button_icons', 'config_icon', 'controller_pad') for path in (PORT / 'assets' / folder).glob('*.bc7')]
     sources += [path for folder in IMAGE_MODULE_DIRS for path in (game / folder).glob('*.prx')]
     return all(not path.is_file() or path.stat().st_mtime < built for path in sources)
 
@@ -92,6 +92,7 @@ def prepare(game, out, force=False):
     run_script('content_profile.py', game, '--out', out, '--sku', 'full')
     run_script('button_icons.py', game, '--out', out)
     run_script('config_icon.py', game, '--out', out)
+    run_script('controller_pad.py', game, '--out', out)
 
 
 def find_probe():

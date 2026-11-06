@@ -18,7 +18,7 @@ dump of your own copy of the game (PS4, version 1.00).
 
 - **PC display settings:** windowed, borderless or fullscreen, at your desktop's resolution.
 - **Keyboard and controller:** Xbox-style mapping for controllers, with the game's button hints
-  redrawn for keyboard and Xbox. DualSense works too.
+  and its Live Info controller redrawn for keyboard and Xbox. DualSense works too.
 - **Easy setup:** point the installer at your dump, and it can add a desktop shortcut (on Linux,
   an application menu entry).
 - **Custom songs:** [dlcmaker](tools/dlcmaker/README.md) turns your own music, charts and art into
@@ -174,8 +174,9 @@ edit `key_map` and `pad_map` in `settings.ini`, e.g. `key_map=cross=G,cross=Mous
 mention of a button replaces its defaults, the next ones add more, and `=None` unbinds it.
 
 On-screen button prompts follow the device you last used: PlayStation icons for a DualShock or
-DualSense, Xbox icons for other gamepads, and key names for the keyboard. Set `button_icons` in
-`settings.ini` to `ps4`, `xbox` or `keyboard` to keep one set.
+DualSense, Xbox icons for other gamepads, and key names for the keyboard. The controller on the
+Live Info panel and in the tutorial follows too: an Xbox pad for other gamepads, the DualShock 4
+otherwise. Set `button_icons` in `settings.ini` to `ps4`, `xbox` or `keyboard` to keep one set.
 
 ## Issues and suggestions
 

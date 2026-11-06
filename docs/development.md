@@ -109,6 +109,14 @@ the sheets from `assets/button_icons` (`scripts/button_icons.py`), the runtime s
 in place of the game's, and on a device change it rewrites the atlas already loaded in memory
 (`src/runtime_button_icons.c`). `button_icons` (or `THEATRHYTHM_BUTTON_ICONS`) is `auto` by default.
 
+The pad on the Live Info panel and in the tutorial follows the same setting: the Controller atlas's
+two base sprites get an Xbox drawing (`assets/controller_pad/xbox.bc7`, put into the game's own atlas
+by `scripts/controller_pad.py`; keyboard players keep the DualShock 4), swapped the same way. The
+DualShock 4's base sprites have tight meshes that would cut the Xbox drawing, and the red press
+highlights sit on its buttons, so `src/runtime_xbox_pad.c` hooks MSGamePad's per-frame calls: while
+the atlas shows the Xbox pad it gives the base renderer a FullRect sprite over the same area and
+moves the highlight groups onto the Xbox buttons, and puts both back for the DualShock 4.
+
 Display Settings is an eighth Options button (`src/runtime_display_page.c`) on the game's own settings page. Its icon
 sits in an unused corner of the Options atlas, one of the game's encrypted bundles: `run.py prepare`
 decrypts it with the key from the game's own metadata, adds `assets/config_icon/display.bc7` and
@@ -157,6 +165,7 @@ when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEAT
 | `tools/dlcmaker/` | Custom song packs: the DLC maker (`core/`; its window and command line in `app/`); see its README |
 | `packaging/windows/` | Manifest, resources and icon of the game exe; `diagnose/`, the debug package's glitch kit |
 | `assets/button_icons/` | Xbox and keyboard icon sheets (PNG, and the game's texture format from `tools/encode_button_icons.py`) |
+| `assets/controller_pad/` | Xbox pad for the Live Info controller (PNG of the two base sprites, and their atlas blocks from `tools/encode_controller_pad.py`) |
 | `assets/config_icon/` | Display Settings icon for the Options menu (PNG patch, and its atlas blocks from `tools/encode_config_icon.py`) |
 | `tools/` | `package.py` (the release), `name_imports.py` (names NIDs), `got_import.py` (names a GOT slot), `game_code.py` (the patched game code in each dump), Frida and IL2CPP tracing helpers |
 | `tests/` | Python tests (`cd tests; python -m unittest`) and C/C++ test targets (`gpu/CMakeLists.txt`) |
