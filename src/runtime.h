@@ -109,6 +109,8 @@ const char *runtime_exit_prompt_translation(const char *term);
 int runtime_exit_prompt_open(void);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
+/* Fifteen party sets instead of five (runtime_party_limit.c), the save's list extended on load. */
+int runtime_party_limit_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
