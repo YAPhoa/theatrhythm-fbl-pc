@@ -770,6 +770,7 @@ static ABI int translate(HookRegs *r) {
             return 0;
         } else for (int i=0;i<ROWS;++i) if (!strcmp(term,rows[i].detail)) text=rows[i].help;
     }
+    if (!text && !strcmp(term,TOP_HITS_TERM)) text="Top Hits"; /* runtime_top_hits.c */
     void *translation=text ? guest_text((const void *)r->rdi,text) : NULL;
     if (!translation) return 0;
     put((void *)r->rsi,(uint64_t)(uintptr_t)translation);
