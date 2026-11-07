@@ -104,6 +104,11 @@ const char *runtime_exit_prompt_translation(const char *term);
 int runtime_exit_prompt_open(void);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
+/* Today's Top Hits as a sort list entry on Music Stages (runtime_top_hits.c), with its stubs written
+ * to `stubs` (`size` bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_top_hits_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The entry's label and title, a term the game does not have: the translation hook answers it. */
+#define TOP_HITS_TERM "Scene/MusicSelect/TopHits"
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
