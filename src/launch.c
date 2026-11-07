@@ -103,9 +103,12 @@ static void user_paths_ini(char *out) {
 #endif
 }
 
-/* game=, save=, cache= and dlc= of paths.ini; 1 when game and save are there. */
+static int top_hits_off;
+
+/* game=, save=, cache=, dlc= and top_hits= of paths.ini; 1 when game and save are there. */
 static int read_paths(const char *ini) {
     game[0] = save[0] = cache[0] = dlc[0] = 0;
+    top_hits_off = 0;
     FILE *f = fopen(ini, "rb");
     if (!f) return 0;
     char line[PATH_CHARS + 64];
@@ -123,6 +126,7 @@ static int read_paths(const char *ini) {
         else if (!strcasecmp(key, "save")) set_path(save, value);
         else if (!strcasecmp(key, "cache")) set_path(cache, value);
         else if (!strcasecmp(key, "dlc")) set_path(dlc, value);
+        else if (!strcasecmp(key, "top_hits")) top_hits_off = !strcmp(value, "0");
     }
     fclose(f);
     if (!cache[0]) shared_cache(cache);
@@ -429,6 +433,7 @@ int launch_from_paths_ini(int *argc, char ***argv) {
     set_env("THEATRHYTHM_CONFIG_DEFAULT", config_default);
     /* Before anything asks the GPU library for its folders (shadps4 common/path_util.cpp). */
     set_env("THEATRHYTHM_GPU_USER_DIR", cache);
+    if (top_hits_off) set_env("THEATRHYTHM_TOP_HITS", "0"); /* the setup's Patches box (src/probe.c) */
 
     int count = 0;
     args[count++] = (*argv)[0];
