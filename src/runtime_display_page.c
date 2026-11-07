@@ -14,10 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The registers a hook sees: the six argument registers (changes are passed on), and what the
- * game function returns when the hook returns 1. */
-typedef struct { uint64_t rdi, rsi, rdx, rcx, r8, r9, rax, rdx_out; } HookRegs;
-typedef int (ABI *HookFn)(HookRegs *regs);
 typedef struct {
     int site;                    /* the function (sites: its moved prologue bytes, no rip-relative operands) */
     HookFn fn;
@@ -210,6 +206,7 @@ static int page_display;               /* the rows the page lists: 1 display set
 static int resorting;                  /* OnInitializeSetting called from here */
 static int forcing;                    /* retranslate(): the rows' texts translate again */
 static void *label_text;               /* LocalizedText being translated (SetTextByTermInfo) */
+static void *label_method;             /* the MethodInfo it was called with */
 static int display_dirty;              /* settings.ini needs saving */
 static struct { unsigned char *view; float x; int moved; } marked[2]; /* row views without their marks: label x, label moved */
 
@@ -732,7 +729,7 @@ static ABI int slider_set_index(HookRegs *r) {
 }
 
 /* LocalizedTextBase<T>::SetTextByTermInfo(this) (shared generic code): the text being translated. */
-static ABI int set_text_by_term(HookRegs *r) { label_text=(void *)r->rdi; return 0; }
+static ABI int set_text_by_term(HookRegs *r) { label_text=(void *)r->rdi; label_method=(void *)r->rsi; return 0; }
 /* LocalizedTextBase<T>::onLanguageChanged(this, from, to): skips a text whose language is `to`, so
  * retranslate() translates the rows' texts itself (SetTextByTermInfo of the same class: its code
  * only reads the class from the MethodInfo). */
@@ -748,6 +745,12 @@ static ABI int on_language_changed_b(HookRegs *r) { return on_language_changed(r
 static ABI int translate(HookRegs *r) {
     void *component=label_text; label_text=NULL;
     char term[80]; guest_string((const void *)r->rdi,term,sizeof(term));
+    void *named=runtime_party_names_translation(component,label_method,term,(const void *)r->rdi);
+    if (named) {
+        put((void *)r->rsi,(uint64_t)(uintptr_t)named);
+        r->rax=1;
+        return 1;
+    }
     const char *text=runtime_exit_prompt_translation(term); /* F4's "Exit the game?" window */
     if (text) {}
     else if (!strcmp(term,"Scene/Config/TopButton/007") && in_button(component)) text="Display Settings";
@@ -866,28 +869,28 @@ static unsigned char *xmm_slot(unsigned char *p, int store, int reg, int32_t dis
     p=emit(p,bytes,sizeof bytes);
     return emit(p,&disp,4);
 }
-/* Most bytes emit_hook_stub writes for `h`. */
-static size_t stub_size(const Hook *h) { return 144+16*(size_t)h->floats; } /* 16 moved bytes at most */
-/* The stub for `h` at `p`: save the argument registers in a HookRegs on the stack, and after it the
+/* Most bytes runtime_hook_stub writes. */
+size_t runtime_hook_stub_size(unsigned floats) { return 144+16*(size_t)floats; } /* 16 moved bytes at most */
+/* The stub for `fn` at `p`: save the argument registers in a HookRegs on the stack, and after it the
  * xmm argument registers the function takes (the call stays 16-byte aligned: rsp is 8 mod 16 at the
- * function entry), call h->fn, then return its result or restore them, run the moved prologue and
+ * function entry), call fn, then return its result or restore them, run the moved prologue and
  * jump back into the function. */
-static unsigned char *emit_hook_stub(unsigned char *p, const Hook *h, unsigned char *function) {
+unsigned char *runtime_hook_stub(unsigned char *p, HookFn fn, unsigned floats, unsigned char *function, unsigned moved) {
     static const int args[6]={7,6,2,1,8,9}; /* rdi rsi rdx rcx r8 r9 */
-    const int32_t frame=72+16*h->floats;
+    const int32_t frame=72+16*(int32_t)floats;
     p=emit(p,(const unsigned char[]){0x48,0x81,0xec},3); p=emit(p,&frame,4); /* sub rsp,frame */
     for (int i=0;i<6;++i) p=rsp_slot(p,1,args[i],(uint8_t)(8*i));
-    for (int i=0;i<h->floats;++i) p=xmm_slot(p,1,i,72+16*i);
+    for (int i=0;i<(int)floats;++i) p=xmm_slot(p,1,i,72+16*i);
     p=emit(p,(const unsigned char[]){0x48,0x89,0xe7},3);                       /* mov rdi,rsp */
-    const uint64_t fn=(uint64_t)(uintptr_t)h->fn;
-    p=emit(p,(const unsigned char[]){0x48,0xb8},2); p=emit(p,&fn,8);          /* mov rax,fn */
+    const uint64_t target=(uint64_t)(uintptr_t)fn;
+    p=emit(p,(const unsigned char[]){0x48,0xb8},2); p=emit(p,&target,8);      /* mov rax,fn */
     p=emit(p,(const unsigned char[]){0xff,0xd0,0x85,0xc0},4);                 /* call rax; test eax,eax */
     unsigned char *jnz=p; p=emit(p,(const unsigned char[]){0x75,0},2);        /* jnz ret */
     for (int i=0;i<6;++i) p=rsp_slot(p,0,args[i],(uint8_t)(8*i));
-    for (int i=0;i<h->floats;++i) p=xmm_slot(p,0,i,72+16*i);
+    for (int i=0;i<(int)floats;++i) p=xmm_slot(p,0,i,72+16*i);
     p=emit(p,(const unsigned char[]){0x48,0x81,0xc4},3); p=emit(p,&frame,4); /* add rsp,frame */
-    p=emit(p,function,code_at[h->site].moved);                                     /* the moved bytes */
-    const uint64_t back=(uint64_t)(uintptr_t)(function+code_at[h->site].moved);
+    p=emit(p,function,moved);                                                 /* the moved bytes */
+    const uint64_t back=(uint64_t)(uintptr_t)(function+moved);
     p=emit(p,(const unsigned char[]){0xff,0x25,0,0,0,0},6); p=emit(p,&back,8); /* jmp [rip]: back */
     jnz[1]=(unsigned char)(p-(jnz+2));
     p=rsp_slot(p,0,0,48); p=rsp_slot(p,0,2,56);                               /* rax, rdx = results */
@@ -929,7 +932,7 @@ int runtime_display_page_install(unsigned char *image, uint64_t module_base, uns
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
         const unsigned moved=code_at[hooks[i].site].moved;
         if (moved<5 || moved>16) return not_installed("a hook's moved bytes are not 5 to 16 (runner bug)");
-        need+=stub_size(&hooks[i]);
+        need+=runtime_hook_stub_size(hooks[i].floats);
         const int64_t rel=(int64_t)(stubs+need-(module+code_at[hooks[i].site].offset+5)); /* the farthest its stub can be */
         if (rel!=(int32_t)rel || need>size) return not_installed("no room for the hook stubs");
     }
@@ -941,7 +944,7 @@ int runtime_display_page_install(unsigned char *image, uint64_t module_base, uns
     for (size_t i=0;i<sizeof(hooks)/sizeof(*hooks);++i) {
         unsigned char *function=CODE(hooks[i].site);
         unsigned char *stub=p;
-        p=emit_hook_stub(p,&hooks[i],function);
+        p=runtime_hook_stub(p,hooks[i].fn,hooks[i].floats,function,code_at[hooks[i].site].moved);
         const int32_t rel32=(int32_t)(stub-(function+5));
         function[0]=0xe9; memcpy(function+1,&rel32,4);
         memset(function+5,0x90,code_at[hooks[i].site].moved-5u); /* never run: the stub jumps past them */
