@@ -121,7 +121,9 @@ python run.py --timeout 20
 - Hang dump: once a frame has been shown, a picture held for `THEATRHYTHM_HANG_DUMP` seconds
   (default 20, `0` turns it off) logs every thread's name, CPU time and frames (`Hang:` lines, guest
   offsets and host module offsets, innermost first), once until frames move again. The `--timeout`
-  watchdog prints the same thread list before it ends a run.
+  watchdog prints the same thread list before it ends a run. Each thread's stack is copied while
+  it is suspended and walked on the copy (a running thread's live stack changes under the walk and
+  once made the watchdog fault in ntdll); a read that faults anyway ends that thread's walk.
 
 ## Development loop
 
