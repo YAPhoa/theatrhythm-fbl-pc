@@ -71,7 +71,9 @@ disassembler: no jump may land inside a span), and
 execute breakpoint on guest instructions, on the trampoline copy of a moved one, and prints the
 hits: its debug exception writes the exception frame there as a tracking fault would. With
 `THEATRHYTHM_DIRTY_ZMM=1` each hit puts zmm31 back in use, so every exception writes the full frame;
-it ends at rsp rounded down to 64 (rsp-0x10 is reached when rsp % 64 is 8). Never probe a
+it ends at rsp rounded down to 64 (rsp-0x10 is reached when rsp % 64 is 8). On a thread where
+zmm31 was not in use yet, that first write into the frame is the probe's own, so list the
+function's entry first: its hit puts zmm31 in use before any probed access runs. Never probe a
 stack-relative access: those are not moved, so the probe clobbers their red zone in any build. Linux needs none of this: the kernel skips
 the red zone when it delivers a signal. To test on an AVX-512 PC the way AVX2-only CPUs behave, set
 `THEATRHYTHM_DIRTY_ZMM=1` (zmm31 stays in use on guest threads). `THEATRHYTHM_FAULT_SITES=1` prints
