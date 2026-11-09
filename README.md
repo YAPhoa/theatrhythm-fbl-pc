@@ -103,7 +103,8 @@ a logo, and **Options** skips the movie once you have watched it through one tim
 
 **DLC you already keep elsewhere**, for example for shadPS4, doesn't need a second copy: choose that
 folder as the **extra DLC folder** in setup (optional; on Linux setup asks, or pass `--dlc <folder>`).
-shadPS4's own `addcont` folder works as it is, with its `CUSA32853` folder inside. The game reads
+shadPS4's own `addcont` folder works as it is, with its `CUSA32853` folder inside, and so does the
+game folder itself when you keep the DLC folders inside the dump. The game reads
 DLC from there as well as from `addcont` in your save folder, and never writes to it. If the same
 DLC is in both, the save folder's copy is used. Custom songs from dlcmaker still go into the save
 folder's `addcont`.

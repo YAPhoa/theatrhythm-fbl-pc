@@ -21,6 +21,8 @@ uint64_t runtime_wait_begin(void);
 void runtime_wait_end(const char *what,uint64_t start,const char *detail,long long arg);
 /* The floating-point state a PS4 gives its threads (runtime_thread.c). */
 void runtime_orbis_fpu(void);
+/* Run by runtime_orbis_fpu on each guest thread before its first code (Windows; NULL: none). */
+extern void (*runtime_thread_start_hook)(void);
 #define ABI __attribute__((sysv_abi))
 typedef void (ABI *GuestCallback)(void);
 /* Calls guest entry(arg0, arg1) with rbp 0, so unwinding and frame walks end there (runtime_thread.c). */
@@ -165,7 +167,7 @@ unsigned runtime_sema_waiters(uint32_t id);
 uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
 /* An extra folder of add-ons next to <user>/addcont/ (its <title_id>/ subfolder when it has one). */
-void runtime_content_extra_dir(const char *folder,const char *title_id);
+void runtime_content_extra_dir(const char *folder,const char *title_id,const char *game);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
 typedef struct { const char *name; void *function; } RuntimeExport;

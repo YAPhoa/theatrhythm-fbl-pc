@@ -385,6 +385,7 @@ static void set_host_priority(const char *name,int guest_prio) {
  * denormals. The values are the ones dumped from real hardware, as in shadPS4 (shadPS4#3568,
  * StevenMiller123, found by red-prig): set on the game's main thread before its first code, and
  * on each thread it creates. */
+void (*runtime_thread_start_hook)(void);
 void runtime_orbis_fpu(void) {
 #if defined(__x86_64__)
     const uint32_t mxcsr=0x9fc0;
@@ -398,6 +399,7 @@ void runtime_orbis_fpu(void) {
     static int dirty=-1;
     if (dirty<0) { const char *e=getenv("THEATRHYTHM_DIRTY_ZMM"); dirty=e && e[0]=='1' && __builtin_cpu_supports("avx512f"); }
     if (dirty) __asm__ volatile(".byte 0x62,0x03,0x05,0x40,0x25,0xff,0xff" ::: "memory"); /* vpternlogd $0xff,zmm31,zmm31,zmm31 */
+    if (runtime_thread_start_hook) runtime_thread_start_hook(); /* THEATRHYTHM_REDZONE_PROBE (tests, probe.c) */
 #endif
 #endif
 }

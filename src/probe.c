@@ -189,9 +189,87 @@ static void note_fault_site(const CONTEXT *c, int write) {
         return;
     }
 }
+/* THEATRHYTHM_REDZONE_PROBE=<offset>[,<offset>...] (tests, up to 4 guest image offsets): a hardware
+ * execute breakpoint on each guest instruction, on its trampoline copy when the red-zone pass moved
+ * it. The debug exception makes Windows write its exception frame below rsp there, as a GPU
+ * page-tracking fault on that access would: red-zone data survives only where the pass moved the
+ * access. Hits are printed at powers of two; for a function's first instruction, with the return
+ * address. Every guest thread arms the breakpoints when it starts (runtime_orbis_fpu), through its
+ * debug registers alone: continuing from an exception raised for that would come back with no
+ * extended state in use, undoing THEATRHYTHM_DIRTY_ZMM. With it set, each hit also puts zmm31 back
+ * in use in the state it returns with, as something can reset it on a thread: the next exception
+ * then writes the full XSAVE frame. That frame ends at rsp rounded down to 64, so it reaches a slot
+ * only when rsp is suitably aligned there (rsp-0x10: rsp % 64 == 8). Never probe a stack-relative
+ * access: the pass does not move those, so the probe overwrites its red zone in any build. */
+static unsigned char *probe_at[4];
+static uint64_t probe_offset[4];
+static volatile LONG64 probe_hits[4];
+static int probe_count;
+static ULONGLONG probe_start;
+static int probe_dirty_zmm;
+static void redzone_probe_arm(void) {
+    CONTEXT c;
+    memset(&c,0,sizeof c);
+    c.ContextFlags=CONTEXT_DEBUG_REGISTERS;
+    DWORD64 *dr[4]={&c.Dr0,&c.Dr1,&c.Dr2,&c.Dr3};
+    for (int i=0;i<probe_count;++i) { *dr[i]=(DWORD64)(uintptr_t)probe_at[i]; c.Dr7|=1ull<<(2*i); } /* local, execute, 1 byte */
+    if (!SetThreadContext(GetCurrentThread(),&c))
+        fprintf(stderr,"Red-zone probe: arming thread %lu failed (%lu)\n",GetCurrentThreadId(),GetLastError());
+}
+/* zmm31 = all ones in the state an exception returns with (zmm16-30 zeroed if they were not in use). */
+static void redzone_probe_dirty_zmm(CONTEXT *c) {
+    DWORD64 mask;
+    DWORD length=0;
+    if ((c->ContextFlags&CONTEXT_XSTATE)!=CONTEXT_XSTATE || !GetXStateFeaturesMask(c,&mask)) return;
+    unsigned char *hi16=LocateXStateFeature(c,XSTATE_AVX512_ZMM,&length);
+    if (!hi16 || length<1024) return;
+    if (!(mask&(1ull<<XSTATE_AVX512_ZMM))) memset(hi16,0,1024);
+    memset(hi16+960,0xff,64);
+    SetXStateFeaturesMask(c,mask|(1ull<<XSTATE_AVX512_ZMM));
+}
+static void redzone_probe_setup(void) {
+    const char *list=getenv("THEATRHYTHM_REDZONE_PROBE");
+    probe_start=GetTickCount64();
+    const char *dirty=getenv("THEATRHYTHM_DIRTY_ZMM");
+    probe_dirty_zmm=dirty && dirty[0]=='1' && __builtin_cpu_supports("avx512f");
+    for (const char *p=list; p && *p && probe_count<4;) {
+        char *end; uint64_t offset=strtoull(p,&end,16);
+        if (end==p) break;
+        unsigned char *copy=theatrhythm_redzone_copy(image+offset);
+        probe_offset[probe_count]=offset;
+        probe_at[probe_count]=copy ? copy : image+offset;
+        printf("Red-zone probe %d: guest 0x%" PRIx64 " runs %s\n",probe_count,offset,copy ? "in a trampoline (moved)" : "in place");
+        ++probe_count;
+        p=*end==',' ? end+1 : end;
+    }
+    if (probe_count) runtime_thread_start_hook=redzone_probe_arm;
+}
+static LONG redzone_probe_exception(EXCEPTION_POINTERS *info) {
+    CONTEXT *c=info->ContextRecord;
+    for (int i=0;i<probe_count;++i) {
+        if (!(c->Dr6&(1ull<<i)) || (unsigned char *)(uintptr_t)c->Rip!=probe_at[i]) continue;
+        LONG64 n=InterlockedIncrement64(&probe_hits[i]);
+        if (!(n&(n-1))) {
+            uint64_t back=*(const uint64_t *)(uintptr_t)c->Rsp-(uint64_t)(uintptr_t)image;
+            if (probe_at[i]==image+probe_offset[i] && back<0x20000000)
+                fprintf(stderr,"Red-zone probe %d: guest 0x%" PRIx64 " x%lld at %.1f s, thread %lu, returns to guest 0x%" PRIx64 "\n",
+                        i,probe_offset[i],(long long)n,(GetTickCount64()-probe_start)/1000.0,GetCurrentThreadId(),back);
+            else fprintf(stderr,"Red-zone probe %d: guest 0x%" PRIx64 " x%lld at %.1f s, thread %lu\n",
+                         i,probe_offset[i],(long long)n,(GetTickCount64()-probe_start)/1000.0,GetCurrentThreadId());
+        }
+        if (probe_dirty_zmm) redzone_probe_dirty_zmm(c);
+        c->Dr6=0;
+        c->EFlags|=0x10000; /* RF: run the instruction without breaking again */
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
     const EXCEPTION_RECORD *record=info->ExceptionRecord;
     DWORD code=record->ExceptionCode;
+    if (probe_count && code==EXCEPTION_SINGLE_STEP &&
+        redzone_probe_exception(info)==EXCEPTION_CONTINUE_EXECUTION)
+        return EXCEPTION_CONTINUE_EXECUTION;
     if (code==EXCEPTION_BREAKPOINT && isa_table) {
         /* An int3 ISA site: emulated here; any other breakpoint goes on to the report below. */
         IsaRegs regs;
@@ -331,11 +409,12 @@ static void redzone_protect(unsigned char *image, uint64_t size, unsigned char *
         fail("red-zone protection failed");
     printf("Red zone: %" PRIu64 " of %" PRIu64 " memory accesses with live red-zone data moved to trampolines "
            "(%" PRIu64 " KiB) in %" PRIu64 " functions; %" PRIu64 " functions changed by the loader left alone, "
-           "%" PRIu64 " stack-relative, %" PRIu64 " control flow, %" PRIu64 " not relocatable%s; %" PRIu64 " ms\n",
+           "%" PRIu64 " stack-relative, %" PRIu64 " control flow, %" PRIu64 " not relocatable, %" PRIu64 " functions with an "
+           "unresolved jump table%s; %" PRIu64 " ms\n",
            r.patched_memory_instruction_count, r.memory_instruction_count, r.trampoline_bytes >> 10,
            r.red_zone_function_count, skipped, r.stack_dependent_memory_instruction_count,
            r.control_flow_memory_instruction_count, r.unrelocatable_memory_instruction_count,
-           r.trampoline_exhausted ? ", trampoline space exhausted" : "", (uint64_t)(GetTickCount64() - start));
+           r.indirect_red_zone_function_count, r.trampoline_exhausted ? ", trampoline space exhausted" : "", (uint64_t)(GetTickCount64() - start));
     for (uint64_t i = 0; i < (module_count + 1) * 2; ++i) free(owned[i]);
     free(owned); free(list);
 }
@@ -853,7 +932,7 @@ int main(int argc, char **argv) {
         sfo_value(sfo,"TITLE_ID",title_id,sizeof(title_id),NULL);
         sfo_value(sfo,"APP_VER",version,sizeof(version),NULL); /* the patch's version (VERSION stays the disc's) */
         runtime_game_identify(title_id,version,app0,argv[1]);
-        if (dlc_dir && dlc_dir[0]) runtime_content_extra_dir(dlc_dir, title_id[0] ? title_id : NULL);
+        if (dlc_dir && dlc_dir[0]) runtime_content_extra_dir(dlc_dir, title_id[0] ? title_id : NULL, app0);
     }
     theatrhythm_gpu_register_kernel();
 #ifdef _WIN32
@@ -1186,6 +1265,7 @@ int main(int argc, char **argv) {
     if (code_before) {
         unsigned char *trampolines = stubs + stub_area + 6 * page_size;
         redzone_protect(image, size, trampolines, code_before, segments, ns, modules, module_count, &main_module);
+        redzone_probe_setup();
         protect(trampolines, redzone_area, 5);
         free(code_before);
     }
