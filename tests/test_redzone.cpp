@@ -40,6 +40,27 @@ static const unsigned char sum[] = {
 static const unsigned char long_store[] = {0xc7, 0x07, 0x01, 0x00, 0x00, 0x00}; // movl $1,(%rdi)
 static const unsigned char short_store[] = {0x89, 0x37};                         // mov %esi,(%rdi)
 
+// A leaf that dispatches through a jump table, the compiler having scheduled an unrelated move
+// between the table load and the add (eboot 0xd34790): its case block, reached only through the
+// table, keeps rsi at -0x40(%rsp) across a store to the tracked page in rdi; returns it.
+static const unsigned char dispatch[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,             // mov %rsi,-0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x24, 0x00, 0x00, 0x00, // lea table(%rip),%r10
+    0x31, 0xc0,                               // xor %eax,%eax
+    0x83, 0xf8, 0x01,                         // cmp $1,%eax
+    0x77, 0x19,                               // ja out
+    0x49, 0x63, 0x0c, 0x82,                   // movslq (%r10,%rax,4),%rcx
+    0x49, 0x89, 0xfb,                         // mov %rdi,%r11
+    0x4c, 0x01, 0xd1,                         // add %r10,%rcx
+    0xff, 0xe1,                               // jmp *%rcx
+    0x41, 0xc7, 0x03, 0x01, 0x00, 0x00, 0x00, // case: movl $1,(%r11)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,             // mov -0x40(%rsp),%rax
+    0xc3,                                     // ret
+    0x31, 0xc0, 0xc3,                         // out: xor %eax,%eax; ret
+    0xcc,
+    0xef, 0xff, 0xff, 0xff, 0xef, 0xff, 0xff, 0xff, // table: case-table (twice)
+};
+
 static size_t emit(unsigned char* at, const unsigned char* store, size_t store_size) {
     size_t n = 0;
     std::memcpy(at + n, locals, sizeof(locals)), n += sizeof(locals);
@@ -87,10 +108,11 @@ int main() {
     std::printf("control (unpatched): faults=%ld, locals %s\n", faults,
                 control == a + b + c ? "intact" : "overwritten by the exception frame");
 
-    const unsigned long long starts[] = {0x100, 0x200};
+    const unsigned long long starts[] = {0x100, 0x200, 0x300};
     emit(image + starts[0], long_store, sizeof(long_store));
     emit(image + starts[1], short_store, sizeof(short_store));
-    TheatrhythmRedZoneSegment segment{0x100, 0x200, starts, 2, nullptr, 0};
+    std::memcpy(image + starts[2], dispatch, sizeof(dispatch));
+    TheatrhythmRedZoneSegment segment{0x100, 0x300, starts, 3, nullptr, 0};
     TheatrhythmRedZoneResult result;
     int status = theatrhythm_redzone_patch(image, 0x800, trampolines, 1 << 20, &segment, 1, &result);
     std::printf("patch: status %d, %llu of %llu accesses moved, %llu not relocatable, %llu trampoline bytes\n",
@@ -98,7 +120,9 @@ int main() {
                 (unsigned long long)result.memory_instruction_count,
                 (unsigned long long)result.unrelocatable_memory_instruction_count,
                 (unsigned long long)result.trampoline_bytes);
-    check(status == 0 && result.patched_memory_instruction_count == 2, "both stores moved to trampolines");
+    check(status == 0 && result.patched_memory_instruction_count == result.memory_instruction_count &&
+              result.memory_instruction_count >= 3, "every access moved to trampolines");
+    check(result.indirect_red_zone_function_count == 0, "jump table resolved past the scheduled move");
     check(std::memcmp(image + starts[0], locals, sizeof(locals)) == 0, "red-zone spills left in place");
 
     for (int i = 0; i < 2; ++i) {
@@ -109,6 +133,11 @@ int main() {
         check(faults == 1 && got == a + b + c, what);
         check(*(unsigned*)tracked == (i ? (unsigned)a : 1u), "store reached the tracked page");
     }
+    faults = 0;
+    *(unsigned*)tracked = 0;
+    unsigned long long got = call(image + starts[2], a, b, c);
+    check(faults == 1 && got == a, "jump-table case store: one fault, local intact");
+    check(*(unsigned*)tracked == 1u, "store reached the tracked page");
     return failures != 0;
 }
 #else

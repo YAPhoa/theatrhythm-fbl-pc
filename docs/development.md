@@ -43,7 +43,11 @@ At load the runner therefore runs shadPS4's static red-zone pass
 (`gpu/shadps4/core/redzone_patches.cpp`, called from `redzone_protect` in probe.c). It finds
 functions from each module's `.eh_frame_hdr`, works out where red-zone data is live, and moves each
 memory access made then to a trampoline after the image that runs it with rsp 128 bytes lower.
-Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
+Code reached only through a `switch` jump table is found by reading the table (a bounds check, then
+`movsxd`, `add`, `jmp reg`; a few unrelated instructions may sit between the load and the add, as in
+the eboot leaf at 0xd34790, whose unprotected case blocks crashed at 0xd34962 with rbp zeroed). A
+function whose table the pass cannot read keeps those blocks unprotected; the log line counts these
+functions (`with an unresolved jump table`). Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
 return address in a trampoline would have no unwind data). The log line
 `Red zone: N of M memory accesses ... moved` gives the counts; `THEATRHYTHM_REDZONE=2` lists the
 accesses it could not move, and `=0` turns the pass off. Linux needs none of this: the kernel skips

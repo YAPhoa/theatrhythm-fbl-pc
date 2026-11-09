@@ -273,7 +273,28 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
     }
     const ZydisRegister table_reg = add->second.operands[1].reg.value;
 
-    const auto load = previous_contiguous(add);
+    // theatrhythm: compilers schedule unrelated instructions between the table load and the add
+    // (eboot 0xd34845: movsxd rcx,[r10+rbp*4]; mov rbx,[rax+rbx+0x18]; add rcx,r10; jmp rcx).
+    // Skip a few that leave the target and table registers alone; upstream wants the two adjacent,
+    // and a table it cannot resolve hides every block reached only through it from the pass.
+    const auto is_table_load = [&](const DecodedCodeInstruction& decoded) {
+        return decoded.instruction.mnemonic == ZYDIS_MNEMONIC_MOVSXD &&
+               decoded.operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+               IsSameRegister(decoded.operands[0].reg.value, target_reg);
+    };
+    auto load = previous_contiguous(add);
+    for (size_t count = 0; count < MaxInterveningInstructions &&
+                           load != function.instructions.end() && !is_table_load(load->second);
+         ++count) {
+        const auto& decoded = load->second;
+        if (WritesRegister(decoded, target_reg) || WritesRegister(decoded, table_reg) ||
+            IsControlFlowTerminator(decoded.instruction) ||
+            decoded.instruction.meta.category == ZYDIS_CATEGORY_COND_BR ||
+            decoded.instruction.meta.category == ZYDIS_CATEGORY_CALL) {
+            return std::nullopt;
+        }
+        load = previous_contiguous(load);
+    }
     if (load == function.instructions.end() ||
         load->second.instruction.mnemonic != ZYDIS_MNEMONIC_MOVSXD ||
         load->second.operands[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||

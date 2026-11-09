@@ -331,11 +331,12 @@ static void redzone_protect(unsigned char *image, uint64_t size, unsigned char *
         fail("red-zone protection failed");
     printf("Red zone: %" PRIu64 " of %" PRIu64 " memory accesses with live red-zone data moved to trampolines "
            "(%" PRIu64 " KiB) in %" PRIu64 " functions; %" PRIu64 " functions changed by the loader left alone, "
-           "%" PRIu64 " stack-relative, %" PRIu64 " control flow, %" PRIu64 " not relocatable%s; %" PRIu64 " ms\n",
+           "%" PRIu64 " stack-relative, %" PRIu64 " control flow, %" PRIu64 " not relocatable, %" PRIu64 " functions with an "
+           "unresolved jump table%s; %" PRIu64 " ms\n",
            r.patched_memory_instruction_count, r.memory_instruction_count, r.trampoline_bytes >> 10,
            r.red_zone_function_count, skipped, r.stack_dependent_memory_instruction_count,
            r.control_flow_memory_instruction_count, r.unrelocatable_memory_instruction_count,
-           r.trampoline_exhausted ? ", trampoline space exhausted" : "", (uint64_t)(GetTickCount64() - start));
+           r.indirect_red_zone_function_count, r.trampoline_exhausted ? ", trampoline space exhausted" : "", (uint64_t)(GetTickCount64() - start));
     for (uint64_t i = 0; i < (module_count + 1) * 2; ++i) free(owned[i]);
     free(owned); free(list);
 }
