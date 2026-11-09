@@ -201,6 +201,15 @@ sits in an unused corner of the Options atlas, one of the game's encrypted bundl
 decrypts it with the key from the game's own metadata, adds `assets/config_icon/display.bc7` and
 encrypts it again (`scripts/config_icon.py`), and the runtime serves it in place of the game's file.
 
+Its values apply while the game runs: the window thread switches the display mode and resolution
+(`gpu/shim/window.cpp`), and the presenter rebuilds the swapchain for a new VSync choice or window
+size (`Presenter::UpdateSwapchain`). Every swapchain rebuild holds `Scheduler::submit_mutex`, since
+`vkDeviceWaitIdle` and destroying the swapchain must not overlap a GPU thread's `vkQueueSubmit`.
+Without that lock, NVIDIA lost the device when VSync changed around a switch into or out of exclusive
+fullscreen (issue #10). To reproduce that kind of failure, flip the settings from the window thread
+in a test build while the game runs. Set `SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS=0`: otherwise an
+exclusive fullscreen window that loses focus minimizes and the presenter stops presenting.
+
 The same file lets left and right on Options > Language & Menu Volume > Language step through all
 nine display languages: the game has Korean and Chinese (Traditional, Simplified) text, graphics and
 fonts, but this release's region checks (`RegionLanguage`, also inlined in `ConfigInfo`'s setter, its
