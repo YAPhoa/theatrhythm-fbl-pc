@@ -61,6 +61,63 @@ static const unsigned char dispatch[] = {
     0xef, 0xff, 0xff, 0xff, 0xef, 0xff, 0xff, 0xff, // table: case-table (twice)
 };
 
+// More table shapes. Each keeps rsi at -0x40(%rsp), stores to the tracked page in rdi in a block
+// reached only through its table (the tail call: before a pointer jump) and returns rsi.
+// The index copied after the bounds check (Il2Cpp: cmp al,N; ja; movzx).
+static const unsigned char copied_index[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,             // mov %rsi,-0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x24, 0x00, 0x00, 0x00, // lea table(%rip),%r10
+    0x31, 0xc0,                               // xor %eax,%eax
+    0x3c, 0x01,                               // cmp $1,%al
+    0x77, 0x18,                               // ja out
+    0x0f, 0xb6, 0xc8,                         // movzbl %al,%ecx
+    0x49, 0x63, 0x0c, 0x8a,                   // movslq (%r10,%rcx,4),%rcx
+    0x4c, 0x01, 0xd1,                         // add %r10,%rcx
+    0xff, 0xe1,                               // jmp *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,       // case: movl $1,(%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,             // mov -0x40(%rsp),%rax
+    0xc3,                                     // ret
+    0x31, 0xc0, 0xc3,                         // out: xor %eax,%eax; ret
+    0xcc, 0xcc, 0xcc,
+    0xee, 0xff, 0xff, 0xff, 0xee, 0xff, 0xff, 0xff, // table: case-table (twice)
+};
+// The index spilled to a stack slot, moves between the cmp and its branch (FMOD 0x17278f0).
+static const unsigned char spilled_index[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,             // mov %rsi,-0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x34, 0x00, 0x00, 0x00, // lea table(%rip),%r10
+    0x45, 0x31, 0xc0,                         // xor %r8d,%r8d
+    0x41, 0x83, 0xf8, 0x01,                   // cmp $1,%r8d
+    0x44, 0x89, 0xc0,                         // mov %r8d,%eax
+    0x48, 0x89, 0x44, 0x24, 0xe0,             // mov %rax,-0x20(%rsp)
+    0x77, 0x1a,                               // ja out
+    0x48, 0x8b, 0x54, 0x24, 0xe0,             // mov -0x20(%rsp),%rdx
+    0x49, 0x63, 0x14, 0x92,                   // movslq (%r10,%rdx,4),%rdx
+    0x4c, 0x01, 0xd2,                         // add %r10,%rdx
+    0xff, 0xe2,                               // jmp *%rdx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,       // case: movl $1,(%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,             // mov -0x40(%rsp),%rax
+    0xc3,                                     // ret
+    0x31, 0xc0, 0xc3,                         // out: xor %eax,%eax; ret
+    0xcc, 0xcc, 0xcc, 0xcc, 0xcc, 0xcc,
+    0xeb, 0xff, 0xff, 0xff, 0xeb, 0xff, 0xff, 0xff, // table: case-table (twice)
+};
+// A bound from a mask, no compare (eboot 0x16a9ff0: and $0x7fff; shr $13): 0..1 here.
+static const unsigned char masked_index[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,             // mov %rsi,-0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x24, 0x00, 0x00, 0x00, // lea table(%rip),%r10
+    0x31, 0xc0,                               // xor %eax,%eax
+    0x25, 0xff, 0x7f, 0x00, 0x00,             // and $0x7fff,%eax
+    0x89, 0xc1,                               // mov %eax,%ecx
+    0xc1, 0xe9, 0x0e,                         // shr $14,%ecx
+    0x49, 0x63, 0x0c, 0x8a,                   // movslq (%r10,%rcx,4),%rcx
+    0x4c, 0x01, 0xd1,                         // add %r10,%rcx
+    0xff, 0xe1,                               // jmp *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,       // case: movl $1,(%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,             // mov -0x40(%rsp),%rax
+    0xc3,                                     // ret
+    0xcc, 0xcc, 0xcc,
+    0xf1, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, // table: case-table (twice)
+};
 // A loop through its table (eboot 0xd34790): the store comes after the case's last use of the
 // local, which is read again on the next pass, so the local is live there only through the
 // table's edge back into the case. r9d counts the passes.
@@ -86,6 +143,16 @@ static const unsigned char table_loop[] = {
     0xcc, 0xcc, 0xcc, 0xcc,
     0xe2, 0xff, 0xff, 0xff, 0xe2, 0xff, 0xff, 0xff, // table: case-table (twice)
 };
+// A tail call through a pointer (IL2CPP thunks: mov 8(%rdx),%rcx; jmp *%rcx) after a short store
+// with the local live: not a table, so the store can move with its neighbours.
+static const unsigned char tail_call[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0, // mov %rsi,-0x40(%rsp)
+    0x89, 0x37,                   // mov %esi,(%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0, // mov -0x40(%rsp),%rax
+    0x48, 0x8b, 0x4a, 0x08,       // mov 8(%rdx),%rcx
+    0xff, 0xe1,                   // jmp *%rcx
+};
+
 static size_t emit(unsigned char* at, const unsigned char* store, size_t store_size) {
     size_t n = 0;
     std::memcpy(at + n, locals, sizeof(locals)), n += sizeof(locals);
@@ -133,12 +200,20 @@ int main() {
     std::printf("control (unpatched): faults=%ld, locals %s\n", faults,
                 control == a + b + c ? "intact" : "overwritten by the exception frame");
 
-    const unsigned long long starts[] = {0x100, 0x200, 0x300, 0x400};
+    const unsigned long long starts[] = {0x100, 0x200, 0x300, 0x400, 0x480, 0x500, 0x580, 0x600};
+    struct { const unsigned char* code; size_t size; const char* what; } const shapes[] = {
+        {copied_index, sizeof(copied_index), "index copied after the check"},
+        {spilled_index, sizeof(spilled_index), "index spilled to a stack slot"},
+        {masked_index, sizeof(masked_index), "index bounded by a mask"},
+        {table_loop, sizeof(table_loop), "local live through the table's loop"},
+    };
     emit(image + starts[0], long_store, sizeof(long_store));
     emit(image + starts[1], short_store, sizeof(short_store));
     std::memcpy(image + starts[2], dispatch, sizeof(dispatch));
-    std::memcpy(image + starts[3], table_loop, sizeof(table_loop));
-    TheatrhythmRedZoneSegment segment{0x100, 0x380, starts, 4, nullptr, 0};
+    for (int i = 0; i < 4; ++i) std::memcpy(image + starts[3 + i], shapes[i].code, shapes[i].size);
+    std::memcpy(image + starts[7], tail_call, sizeof(tail_call));
+    image[0x900] = 0xc3; // the tail call's target: ret
+    TheatrhythmRedZoneSegment segment{0x100, 0x700, starts, 8, nullptr, 0};
     TheatrhythmRedZoneResult result;
     int status = theatrhythm_redzone_patch(image, 0x800, trampolines, 1 << 20, &segment, 1, &result);
     std::printf("patch: status %d, %llu of %llu accesses moved, %llu not relocatable, %llu trampoline bytes\n",
@@ -147,8 +222,8 @@ int main() {
                 (unsigned long long)result.unrelocatable_memory_instruction_count,
                 (unsigned long long)result.trampoline_bytes);
     check(status == 0 && result.patched_memory_instruction_count == result.memory_instruction_count &&
-              result.memory_instruction_count >= 3, "every access moved to trampolines");
-    check(result.indirect_red_zone_function_count == 0, "jump table resolved past the scheduled move");
+              result.memory_instruction_count >= 8, "every access moved to trampolines");
+    check(result.indirect_red_zone_function_count == 0, "every jump table resolved, the tail call not taken for one");
     check(std::memcmp(image + starts[0], locals, sizeof(locals)) == 0, "red-zone spills left in place");
 
     for (int i = 0; i < 2; ++i) {
@@ -164,10 +239,18 @@ int main() {
     unsigned long long got = call(image + starts[2], a, b, c);
     check(faults == 1 && got == a, "jump-table case store: one fault, local intact");
     check(*(unsigned*)tracked == 1u, "store reached the tracked page");
+    for (int i = 0; i < 4; ++i) {
+        faults = 0;
+        *(unsigned*)tracked = 0;
+        got = call(image + starts[3 + i], a, b, c);
+        char what[128];
+        std::snprintf(what, sizeof(what), "%s: one fault, local intact", shapes[i].what);
+        check(faults == 1 && got == a && *(unsigned*)tracked == 1u, what);
+    }
+    const unsigned long long thunk[2] = {0, (unsigned long long)(uintptr_t)(image + 0x900)};
     faults = 0;
-    *(unsigned*)tracked = 0;
-    got = call(image + starts[3], a, b, c);
-    check(faults == 1 && got == a && *(unsigned*)tracked == 1u, "local live through the table's loop: one fault, local intact");
+    got = call(image + starts[7], a, (unsigned long long)(uintptr_t)thunk, c);
+    check(faults == 1 && got == a && *(unsigned*)tracked == (unsigned)a, "store before a tail call: one fault, local intact");
     return failures != 0;
 }
 #else

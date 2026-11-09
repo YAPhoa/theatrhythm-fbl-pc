@@ -43,19 +43,29 @@ At load the runner therefore runs shadPS4's static red-zone pass
 (`gpu/shadps4/core/redzone_patches.cpp`, called from `redzone_protect` in probe.c). It finds
 functions from each module's `.eh_frame_hdr`, works out where red-zone data is live, and moves each
 memory access made then to a trampoline after the image that runs it with rsp 128 bytes lower.
-Code reached only through a `switch` jump table is found by reading the table (a bounds check, then
-`movsxd`, `add`, `jmp reg`; a few unrelated instructions may sit between the load and the add, as in
-the eboot leaf at 0xd34790, whose unprotected case blocks crashed at 0xd34962 with rbp zeroed). A
-function whose table the pass cannot read keeps those blocks unprotected; the log line counts these
-functions (`with an unresolved jump table`). Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
+Code reached only through a `switch` jump table is found by reading the table: a `jmp reg` after
+`movsxd reg, [table + index*4]` and `add reg, table`, with the index bounded by `cmp index, imm` and
+`ja`/`jae`, or by `and r32, imm` and shifts right. On top of upstream's adjacent pattern the pass
+skips unrelated instructions between the load and the add (eboot 0xd34790), follows copies of the
+index (`mov`, `movzx`, a spill through a stack slot) and flag-keeping instructions between the
+`cmp` and its branch (Il2Cpp, FMOD), and finds a table register set in an earlier block from its
+reaching definitions over the function's edges, taken only when every jump of the function
+resolves and each table comes out the same again with all edges known. The table's targets are
+the jump's successors in the liveness analysis (upstream gives it none, so data read again in a
+case of a loop through the table counted as dead: 0xd34790's `[rsp-0x10]`, whose loss crashed at
+0xd34962). A pointer jump (`jmp [reg]`, or `jmp reg` right after `mov reg, [reg+d]`, IL2CPP's
+method thunks) is a tail call, not a table. A function whose table the pass still cannot read
+would keep those blocks unprotected; the log line counts these functions (`with an unresolved
+jump table`, 0 in 1.00 and 1.04). Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
 return address in a trampoline would have no unwind data). The log line
 `Red zone: N of M memory accesses ... moved` gives the counts; `THEATRHYTHM_REDZONE=2` lists the
-accesses it could not move, and `=0` turns the pass off. Linux needs none of this: the kernel skips
+accesses it could not move and the jumps it could not follow, and `=0` turns the pass off. Linux needs none of this: the kernel skips
 the red zone when it delivers a signal. To test on an AVX-512 PC the way AVX2-only CPUs behave, set
 `THEATRHYTHM_DIRTY_ZMM=1` (zmm31 stays in use on guest threads). `THEATRHYTHM_FAULT_SITES=1` prints
 each guest instruction that takes a tracking fault. `tests/test_redzone.cpp` (`redzone-test`, run by
-`build.sh --test` on Windows) patches a small leaf function that stores into a write-protected page
-and checks that its red-zone locals survive the fault; an unpatched copy shows the overwrite.
+`build.sh --test` on Windows) patches small leaf functions that store into a write-protected page,
+one per table shape above and a tail call, and checks that their red-zone locals survive the
+fault; an unpatched copy shows the overwrite.
 
 The renderer draws at the game's own resolution (2160p in PS4 Pro mode with `render_resolution=4k`,
 the default: `sceKernelIsNeoMode` returns 1, the video out is 3840x2160 and probe.c serves
