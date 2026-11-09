@@ -189,9 +189,66 @@ static void note_fault_site(const CONTEXT *c, int write) {
         return;
     }
 }
+/* THEATRHYTHM_REDZONE_PROBE=<offset>[,<offset>...] (tests, up to 4 guest image offsets): a hardware
+ * execute breakpoint on each guest instruction, on its trampoline copy when the red-zone pass moved
+ * it. The debug exception makes Windows write its exception frame below rsp there, as a GPU
+ * page-tracking fault on that access would: red-zone data survives only where the pass moved the
+ * access. Hits are printed at powers of two; for a function's first instruction, with the return
+ * address. Every guest thread arms the breakpoints when it starts (runtime_orbis_fpu). */
+#define PROBE_ARM 0xE0525A50u /* 'RZP' */
+static unsigned char *probe_at[4];
+static uint64_t probe_offset[4];
+static volatile LONG64 probe_hits[4];
+static int probe_count;
+static ULONGLONG probe_start;
+static void redzone_probe_arm(void) { RaiseException(PROBE_ARM,0,0,NULL); }
+static void redzone_probe_setup(void) {
+    const char *list=getenv("THEATRHYTHM_REDZONE_PROBE");
+    probe_start=GetTickCount64();
+    for (const char *p=list; p && *p && probe_count<4;) {
+        char *end; uint64_t offset=strtoull(p,&end,16);
+        if (end==p) break;
+        unsigned char *copy=theatrhythm_redzone_copy(image+offset);
+        probe_offset[probe_count]=offset;
+        probe_at[probe_count]=copy ? copy : image+offset;
+        printf("Red-zone probe %d: guest 0x%" PRIx64 " runs %s\n",probe_count,offset,copy ? "in a trampoline (moved)" : "in place");
+        ++probe_count;
+        p=*end==',' ? end+1 : end;
+    }
+    if (probe_count) runtime_thread_start_hook=redzone_probe_arm;
+}
+static LONG redzone_probe_exception(EXCEPTION_POINTERS *info) {
+    CONTEXT *c=info->ContextRecord;
+    if (info->ExceptionRecord->ExceptionCode==PROBE_ARM) {
+        DWORD64 *dr[4]={&c->Dr0,&c->Dr1,&c->Dr2,&c->Dr3};
+        c->Dr7=0;
+        for (int i=0;i<probe_count;++i) { *dr[i]=(DWORD64)(uintptr_t)probe_at[i]; c->Dr7|=1ull<<(2*i); } /* local, execute, 1 byte */
+        c->ContextFlags|=CONTEXT_DEBUG_REGISTERS;
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    for (int i=0;i<probe_count;++i) {
+        if (!(c->Dr6&(1ull<<i)) || (unsigned char *)(uintptr_t)c->Rip!=probe_at[i]) continue;
+        LONG64 n=InterlockedIncrement64(&probe_hits[i]);
+        if (!(n&(n-1))) {
+            uint64_t back=*(const uint64_t *)(uintptr_t)c->Rsp-(uint64_t)(uintptr_t)image;
+            if (probe_at[i]==image+probe_offset[i] && back<0x20000000)
+                fprintf(stderr,"Red-zone probe %d: guest 0x%" PRIx64 " x%lld at %.1f s, thread %lu, returns to guest 0x%" PRIx64 "\n",
+                        i,probe_offset[i],(long long)n,(GetTickCount64()-probe_start)/1000.0,GetCurrentThreadId(),back);
+            else fprintf(stderr,"Red-zone probe %d: guest 0x%" PRIx64 " x%lld at %.1f s, thread %lu\n",
+                         i,probe_offset[i],(long long)n,(GetTickCount64()-probe_start)/1000.0,GetCurrentThreadId());
+        }
+        c->Dr6=0;
+        c->EFlags|=0x10000; /* RF: run the instruction without breaking again */
+        return EXCEPTION_CONTINUE_EXECUTION;
+    }
+    return EXCEPTION_CONTINUE_SEARCH;
+}
 static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
     const EXCEPTION_RECORD *record=info->ExceptionRecord;
     DWORD code=record->ExceptionCode;
+    if (probe_count && (code==PROBE_ARM || code==EXCEPTION_SINGLE_STEP) &&
+        redzone_probe_exception(info)==EXCEPTION_CONTINUE_EXECUTION)
+        return EXCEPTION_CONTINUE_EXECUTION;
     if (code==EXCEPTION_BREAKPOINT && isa_table) {
         /* An int3 ISA site: emulated here; any other breakpoint goes on to the report below. */
         IsaRegs regs;
@@ -1187,6 +1244,7 @@ int main(int argc, char **argv) {
     if (code_before) {
         unsigned char *trampolines = stubs + stub_area + 6 * page_size;
         redzone_protect(image, size, trampolines, code_before, segments, ns, modules, module_count, &main_module);
+        redzone_probe_setup();
         protect(trampolines, redzone_area, 5);
         free(code_before);
     }

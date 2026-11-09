@@ -59,7 +59,10 @@ would keep those blocks unprotected; the log line counts these functions (`with 
 jump table`, 0 in 1.00 and 1.04). Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
 return address in a trampoline would have no unwind data). The log line
 `Red zone: N of M memory accesses ... moved` gives the counts; `THEATRHYTHM_REDZONE=2` lists the
-accesses it could not move and the jumps it could not follow, and `=0` turns the pass off. Linux needs none of this: the kernel skips
+accesses it could not move and the jumps it could not follow, `=3` also every access it moved, and
+`=0` turns the pass off. `THEATRHYTHM_REDZONE_PROBE=<offset>[,...]` (tests, up to 4) puts a hardware
+execute breakpoint on guest instructions, on the trampoline copy of a moved one, and prints the
+hits: its debug exception writes the exception frame there as a tracking fault would. Linux needs none of this: the kernel skips
 the red zone when it delivers a signal. To test on an AVX-512 PC the way AVX2-only CPUs behave, set
 `THEATRHYTHM_DIRTY_ZMM=1` (zmm31 stays in use on guest threads). `THEATRHYTHM_FAULT_SITES=1` prints
 each guest instruction that takes a tracking fault. `tests/test_redzone.cpp` (`redzone-test`, run by

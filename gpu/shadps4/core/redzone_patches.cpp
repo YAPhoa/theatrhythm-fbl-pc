@@ -911,7 +911,9 @@ bool MayUseRedZone(const u8* start, const u8* end) {
 struct PatchModule {
     uintptr_t image;
     bool verbose;
+    bool list_moved{}; // theatrhythm: THEATRHYTHM_REDZONE=3
     std::set<u8*> patched;
+    std::map<uintptr_t, uintptr_t> copies; // theatrhythm: moved instruction -> its trampoline copy
     Xbyak::CodeGenerator patch_gen;
     Xbyak::CodeGenerator trampoline_gen;
     bool trampoline_exhausted{};
@@ -1054,6 +1056,7 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
             if (module->trampoline_exhausted) {
                 return std::nullopt;
             }
+            std::vector<std::pair<uintptr_t, uintptr_t>> copies; // theatrhythm: original, copy
             try {
                 for (const auto* decoded : span.instructions) {
                     const auto rewrite = rewrite_sites.find(decoded->address);
@@ -1062,6 +1065,8 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
                     if (protect_red_zone) {
                         module->trampoline_gen.lea(rsp, ptr[rsp - GuestRedZoneSize]);
                     }
+                    copies.emplace_back(decoded->address,
+                                        reinterpret_cast<uintptr_t>(module->trampoline_gen.getCurr()));
                     if (!EncodeRelocatedInstruction(*decoded, module->trampoline_gen)) {
                         module->trampoline_gen.setSize(trampoline_offset);
                         return std::nullopt;
@@ -1071,6 +1076,7 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
                     }
                 }
                 module->trampoline_gen.jmp(reinterpret_cast<void*>(span.continuation));
+                module->copies.insert(copies.begin(), copies.end());
             } catch (const Xbyak::Error& error) {
                 module->trampoline_gen.setSize(trampoline_offset);
                 if (HandleTrampolineError(module, error)) {
@@ -1089,6 +1095,12 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
                 }
                 if (rewrite->second.protect_red_zone) {
                     ++result.patched_memory_instruction_count;
+                    // theatrhythm: THEATRHYTHM_REDZONE=3 lists each moved access (image offsets).
+                    if (module->list_moved) {
+                        std::fprintf(stderr, "Red zone: moved: guest 0x%llx (function 0x%llx)\n",
+                                     static_cast<unsigned long long>(decoded->address - module->image),
+                                     static_cast<unsigned long long>(function_start - module->image));
+                    }
                 }
                 module->patched.insert(reinterpret_cast<u8*>(decoded->address));
             }
@@ -1462,6 +1474,14 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
 
 } // namespace
 
+// theatrhythm: where each instruction the last theatrhythm_redzone_patch moved now runs.
+static std::map<uintptr_t, uintptr_t> moved_copies;
+
+extern "C" unsigned char* theatrhythm_redzone_copy(const unsigned char* instruction) {
+    const auto copy = moved_copies.find(reinterpret_cast<uintptr_t>(instruction));
+    return copy == moved_copies.end() ? nullptr : reinterpret_cast<unsigned char*>(copy->second);
+}
+
 // theatrhythm: C entry point (theatrhythm_gpu.h).
 extern "C" int theatrhythm_redzone_patch(unsigned char* image, unsigned long long image_size,
                                          unsigned char* trampolines,
@@ -1473,7 +1493,9 @@ extern "C" int theatrhythm_redzone_patch(unsigned char* image, unsigned long lon
     Common::Decoder::Instance(); // created here, before the analysis threads use it
     try {
         const char* setting = std::getenv("THEATRHYTHM_REDZONE");
-        PatchModule module{image, image_size, trampolines, trampolines_size, setting && setting[0] == '2'};
+        PatchModule module{image, image_size, trampolines, trampolines_size,
+                           setting && (setting[0] == '2' || setting[0] == '3')};
+        module.list_moved = setting && setting[0] == '3';
         for (unsigned long long i = 0; i < segment_count; ++i) {
             const auto& s = segments[i];
             std::vector<uintptr_t> starts(s.function_count);
@@ -1489,6 +1511,7 @@ extern "C" int theatrhythm_redzone_patch(unsigned char* image, unsigned long lon
         }
         result->trampoline_bytes = module.trampoline_gen.getSize();
         result->trampoline_exhausted = module.trampoline_exhausted;
+        moved_copies = std::move(module.copies);
         return 0;
     } catch (const Xbyak::Error& error) {
         std::fprintf(stderr, "Red zone: code generation failed (%s)\n", Xbyak::ConvertErrorToString(error));

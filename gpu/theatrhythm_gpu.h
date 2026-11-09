@@ -44,6 +44,8 @@ typedef struct {
 int theatrhythm_redzone_patch(unsigned char *image, unsigned long long image_size, unsigned char *trampolines,
                               unsigned long long trampolines_size, const TheatrhythmRedZoneSegment *segments,
                               unsigned long long segment_count, TheatrhythmRedZoneResult *result);
+/* The trampoline copy of a guest instruction the last theatrhythm_redzone_patch moved, or NULL. */
+unsigned char *theatrhythm_redzone_copy(const unsigned char *instruction);
 /* THEATRHYTHM_WRITE_LOG=1: prints the logged GPU-side writes to guest memory near the fault. */
 void theatrhythm_gpu_dump_guest_writes(void *ucontext);
 /* Keyboard text entry through the game window (IME dialog). begin returns 0 when
