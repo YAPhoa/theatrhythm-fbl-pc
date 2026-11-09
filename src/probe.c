@@ -194,17 +194,44 @@ static void note_fault_site(const CONTEXT *c, int write) {
  * it. The debug exception makes Windows write its exception frame below rsp there, as a GPU
  * page-tracking fault on that access would: red-zone data survives only where the pass moved the
  * access. Hits are printed at powers of two; for a function's first instruction, with the return
- * address. Every guest thread arms the breakpoints when it starts (runtime_orbis_fpu). */
-#define PROBE_ARM 0xE0525A50u /* 'RZP' */
+ * address. Every guest thread arms the breakpoints when it starts (runtime_orbis_fpu), through its
+ * debug registers alone: continuing from an exception raised for that would come back with no
+ * extended state in use, undoing THEATRHYTHM_DIRTY_ZMM. With it set, each hit also puts zmm31 back
+ * in use in the state it returns with, as something can reset it on a thread: the next exception
+ * then writes the full XSAVE frame. That frame ends at rsp rounded down to 64, so it reaches a slot
+ * only when rsp is suitably aligned there (rsp-0x10: rsp % 64 == 8). Never probe a stack-relative
+ * access: the pass does not move those, so the probe overwrites its red zone in any build. */
 static unsigned char *probe_at[4];
 static uint64_t probe_offset[4];
 static volatile LONG64 probe_hits[4];
 static int probe_count;
 static ULONGLONG probe_start;
-static void redzone_probe_arm(void) { RaiseException(PROBE_ARM,0,0,NULL); }
+static int probe_dirty_zmm;
+static void redzone_probe_arm(void) {
+    CONTEXT c;
+    memset(&c,0,sizeof c);
+    c.ContextFlags=CONTEXT_DEBUG_REGISTERS;
+    DWORD64 *dr[4]={&c.Dr0,&c.Dr1,&c.Dr2,&c.Dr3};
+    for (int i=0;i<probe_count;++i) { *dr[i]=(DWORD64)(uintptr_t)probe_at[i]; c.Dr7|=1ull<<(2*i); } /* local, execute, 1 byte */
+    if (!SetThreadContext(GetCurrentThread(),&c))
+        fprintf(stderr,"Red-zone probe: arming thread %lu failed (%lu)\n",GetCurrentThreadId(),GetLastError());
+}
+/* zmm31 = all ones in the state an exception returns with (zmm16-30 zeroed if they were not in use). */
+static void redzone_probe_dirty_zmm(CONTEXT *c) {
+    DWORD64 mask;
+    DWORD length=0;
+    if ((c->ContextFlags&CONTEXT_XSTATE)!=CONTEXT_XSTATE || !GetXStateFeaturesMask(c,&mask)) return;
+    unsigned char *hi16=LocateXStateFeature(c,XSTATE_AVX512_ZMM,&length);
+    if (!hi16 || length<1024) return;
+    if (!(mask&(1ull<<XSTATE_AVX512_ZMM))) memset(hi16,0,1024);
+    memset(hi16+960,0xff,64);
+    SetXStateFeaturesMask(c,mask|(1ull<<XSTATE_AVX512_ZMM));
+}
 static void redzone_probe_setup(void) {
     const char *list=getenv("THEATRHYTHM_REDZONE_PROBE");
     probe_start=GetTickCount64();
+    const char *dirty=getenv("THEATRHYTHM_DIRTY_ZMM");
+    probe_dirty_zmm=dirty && dirty[0]=='1' && __builtin_cpu_supports("avx512f");
     for (const char *p=list; p && *p && probe_count<4;) {
         char *end; uint64_t offset=strtoull(p,&end,16);
         if (end==p) break;
@@ -219,13 +246,6 @@ static void redzone_probe_setup(void) {
 }
 static LONG redzone_probe_exception(EXCEPTION_POINTERS *info) {
     CONTEXT *c=info->ContextRecord;
-    if (info->ExceptionRecord->ExceptionCode==PROBE_ARM) {
-        DWORD64 *dr[4]={&c->Dr0,&c->Dr1,&c->Dr2,&c->Dr3};
-        c->Dr7=0;
-        for (int i=0;i<probe_count;++i) { *dr[i]=(DWORD64)(uintptr_t)probe_at[i]; c->Dr7|=1ull<<(2*i); } /* local, execute, 1 byte */
-        c->ContextFlags|=CONTEXT_DEBUG_REGISTERS;
-        return EXCEPTION_CONTINUE_EXECUTION;
-    }
     for (int i=0;i<probe_count;++i) {
         if (!(c->Dr6&(1ull<<i)) || (unsigned char *)(uintptr_t)c->Rip!=probe_at[i]) continue;
         LONG64 n=InterlockedIncrement64(&probe_hits[i]);
@@ -237,6 +257,7 @@ static LONG redzone_probe_exception(EXCEPTION_POINTERS *info) {
             else fprintf(stderr,"Red-zone probe %d: guest 0x%" PRIx64 " x%lld at %.1f s, thread %lu\n",
                          i,probe_offset[i],(long long)n,(GetTickCount64()-probe_start)/1000.0,GetCurrentThreadId());
         }
+        if (probe_dirty_zmm) redzone_probe_dirty_zmm(c);
         c->Dr6=0;
         c->EFlags|=0x10000; /* RF: run the instruction without breaking again */
         return EXCEPTION_CONTINUE_EXECUTION;
@@ -246,7 +267,7 @@ static LONG redzone_probe_exception(EXCEPTION_POINTERS *info) {
 static LONG CALLBACK vectored_fault(EXCEPTION_POINTERS *info) {
     const EXCEPTION_RECORD *record=info->ExceptionRecord;
     DWORD code=record->ExceptionCode;
-    if (probe_count && (code==PROBE_ARM || code==EXCEPTION_SINGLE_STEP) &&
+    if (probe_count && code==EXCEPTION_SINGLE_STEP &&
         redzone_probe_exception(info)==EXCEPTION_CONTINUE_EXECUTION)
         return EXCEPTION_CONTINUE_EXECUTION;
     if (code==EXCEPTION_BREAKPOINT && isa_table) {
