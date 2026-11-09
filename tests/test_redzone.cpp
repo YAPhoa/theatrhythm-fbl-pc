@@ -153,6 +153,156 @@ static const unsigned char tail_call[] = {
     0xff, 0xe1,                   // jmp *%rcx
 };
 
+// Built from assembly (clang), offsets from each function's start.
+// The table register set in an earlier block, out of reach of the nearest-lea walk (eboot
+// 0x16a9ff0's loops): only its reaching definition finds the table.
+static const unsigned char earlier_block[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x24, 0x00, 0x00, 0x00,  // 0x05: leaq 0x24(%rip), %r10
+    0x31, 0xc0,                                // 0x0c: xorl %eax, %eax
+    0xeb, 0x01,                                // 0x0e: jmp 0x11
+    0xcc,
+    0x83, 0xf8, 0x01,                          // 0x11: cmpl $0x1, %eax
+    0x77, 0x15,                                // 0x14: ja 0x2b
+    0x49, 0x63, 0x0c, 0x82,                    // 0x16: movslq (%r10,%rax,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x1a: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x1d: jmpq *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,        // 0x1f: movl $0x1, (%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,              // 0x25: movq -0x40(%rsp), %rax
+    0xc3,                                      // 0x2a: retq
+    0x31, 0xc0,                                // 0x2b: xorl %eax, %eax
+    0xc3,                                      // 0x2d: retq
+    0xcc, 0xcc,
+    0xef, 0xff, 0xff, 0xff, 0xef, 0xff, 0xff, 0xff, // table
+};
+// Refused: the nearest lea by address (another table, in a block that returns) is not the one
+// reaching the load.
+static const unsigned char nearest_disagrees[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x30, 0x00, 0x00, 0x00,  // 0x05: leaq 0x30(%rip), %r10
+    0x31, 0xc0,                                // 0x0c: xorl %eax, %eax
+    0x85, 0xd2,                                // 0x0e: testl %edx, %edx
+    0x74, 0x0a,                                // 0x10: je 0x1c
+    0x4c, 0x8d, 0x15, 0x2b, 0x00, 0x00, 0x00,  // 0x12: leaq 0x2b(%rip), %r10
+    0x31, 0xc0,                                // 0x19: xorl %eax, %eax
+    0xc3,                                      // 0x1b: retq
+    0x83, 0xf8, 0x01,                          // 0x1c: cmpl $0x1, %eax
+    0x77, 0x15,                                // 0x1f: ja 0x36
+    0x49, 0x63, 0x0c, 0x82,                    // 0x21: movslq (%r10,%rax,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x25: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x28: jmpq *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,        // 0x2a: movl $0x1, (%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,              // 0x30: movq -0x40(%rsp), %rax
+    0xc3,                                      // 0x35: retq
+    0x31, 0xc0,                                // 0x36: xorl %eax, %eax
+    0xc3,                                      // 0x38: retq
+    0xcc, 0xcc, 0xcc,
+    0xee, 0xff, 0xff, 0xff, 0xee, 0xff, 0xff, 0xff, 0xf2, 0xff, 0xff, 0xff, 0xf2, 0xff, 0xff, 0xff, // table
+};
+// Refused: two tables reach the load.
+static const unsigned char two_definitions[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x31, 0xc0,                                // 0x05: xorl %eax, %eax
+    0x85, 0xd2,                                // 0x07: testl %edx, %edx
+    0x74, 0x09,                                // 0x09: je 0x14
+    0x4c, 0x8d, 0x15, 0x2a, 0x00, 0x00, 0x00,  // 0x0b: leaq 0x2a(%rip), %r10
+    0xeb, 0x0a,                                // 0x12: jmp 0x1e
+    0x4c, 0x8d, 0x15, 0x29, 0x00, 0x00, 0x00,  // 0x14: leaq 0x29(%rip), %r10
+    0xeb, 0x01,                                // 0x1b: jmp 0x1e
+    0xcc,
+    0x83, 0xf8, 0x01,                          // 0x1e: cmpl $0x1, %eax
+    0x77, 0x15,                                // 0x21: ja 0x38
+    0x49, 0x63, 0x0c, 0x82,                    // 0x23: movslq (%r10,%rax,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x27: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x2a: jmpq *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,        // 0x2c: movl $0x1, (%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,              // 0x32: movq -0x40(%rsp), %rax
+    0xc3,                                      // 0x37: retq
+    0x31, 0xc0,                                // 0x38: xorl %eax, %eax
+    0xc3,                                      // 0x3a: retq
+    0xcc,
+    0xf0, 0xff, 0xff, 0xff, 0xf0, 0xff, 0xff, 0xff, 0xf4, 0xff, 0xff, 0xff, 0xf4, 0xff, 0xff, 0xff, // table
+};
+// Refused: the compare checks al, the index is all of eax.
+static const unsigned char narrow_compare[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x20, 0x00, 0x00, 0x00,  // 0x05: leaq 0x20(%rip), %r10
+    0x89, 0xd0,                                // 0x0c: movl %edx, %eax
+    0x3c, 0x01,                                // 0x0e: cmpb $0x1, %al
+    0x77, 0x17,                                // 0x10: ja 0x29
+    0x89, 0xc1,                                // 0x12: movl %eax, %ecx
+    0x49, 0x63, 0x0c, 0x8a,                    // 0x14: movslq (%r10,%rcx,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x18: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x1b: jmpq *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,        // 0x1d: movl $0x1, (%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,              // 0x23: movq -0x40(%rsp), %rax
+    0xc3,                                      // 0x28: retq
+    0x31, 0xc0,                                // 0x29: xorl %eax, %eax
+    0xc3,                                      // 0x2b: retq
+    0xf1, 0xff, 0xff, 0xff, 0xf1, 0xff, 0xff, 0xff, // table
+};
+// Refused: a way into the path between the bounds check and the jump.
+static const unsigned char join_in_guard[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x24, 0x00, 0x00, 0x00,  // 0x05: leaq 0x24(%rip), %r10
+    0x89, 0xd0,                                // 0x0c: movl %edx, %eax
+    0x85, 0xc9,                                // 0x0e: testl %ecx, %ecx
+    0x75, 0x05,                                // 0x10: jne 0x17
+    0x83, 0xf8, 0x01,                          // 0x12: cmpl $0x1, %eax
+    0x77, 0x15,                                // 0x15: ja 0x2c
+    0x49, 0x63, 0x0c, 0x82,                    // 0x17: movslq (%r10,%rax,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x1b: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x1e: jmpq *%rcx
+    0xc7, 0x07, 0x01, 0x00, 0x00, 0x00,        // 0x20: movl $0x1, (%rdi)
+    0x48, 0x8b, 0x44, 0x24, 0xc0,              // 0x26: movq -0x40(%rsp), %rax
+    0xc3,                                      // 0x2b: retq
+    0x31, 0xc0,                                // 0x2c: xorl %eax, %eax
+    0xc3,                                      // 0x2e: retq
+    0xcc,
+    0xf0, 0xff, 0xff, 0xff, 0xf0, 0xff, 0xff, 0xff, // table
+};
+// Refused as a tail call: a way in between the pointer load and the jump (rcx unknown there).
+static const unsigned char joined_tail_call[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x85, 0xc9,                                // 0x05: testl %ecx, %ecx
+    0x75, 0x04,                                // 0x07: jne 0x0d
+    0x48, 0x8b, 0x4a, 0x08,                    // 0x09: movq 0x8(%rdx), %rcx
+    0xff, 0xe1,                                // 0x0d: jmpq *%rcx
+};
+// Refused: a table of absolute pointers (indexed), not a tail call.
+static const unsigned char pointer_table[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x09, 0x00, 0x00, 0x00,  // 0x05: leaq 0x9(%rip), %r10
+    0x31, 0xc0,                                // 0x0c: xorl %eax, %eax
+    0x49, 0x8b, 0x0c, 0xc2,                    // 0x0e: movq (%r10,%rax,8), %rcx
+    0xff, 0xe1,                                // 0x12: jmpq *%rcx
+    0xcc,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // table
+};
+// Refused: table B (found only behind table A) jumps into A's guarded path, so A's bound does
+// not hold; known only once all edges are.
+static const unsigned char late_join[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,              // 0x00: movq %rsi, -0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x2c, 0x00, 0x00, 0x00,  // 0x05: leaq 0x2c(%rip), %r10
+    0x31, 0xc0,                                // 0x0c: xorl %eax, %eax
+    0x83, 0xf8, 0x01,                          // 0x0e: cmpl $0x1, %eax
+    0x77, 0x21,                                // 0x11: ja 0x34
+    0x49, 0x63, 0x0c, 0x82,                    // 0x13: movslq (%r10,%rax,4), %rcx
+    0x4c, 0x01, 0xd1,                          // 0x17: addq %r10, %rcx
+    0xff, 0xe1,                                // 0x1a: jmpq *%rcx
+    0x4c, 0x8d, 0x1d, 0x1d, 0x00, 0x00, 0x00,  // 0x1c: leaq 0x1d(%rip), %r11
+    0x31, 0xd2,                                // 0x23: xorl %edx, %edx
+    0x83, 0xfa, 0x01,                          // 0x25: cmpl $0x1, %edx
+    0x77, 0x0a,                                // 0x28: ja 0x34
+    0x4d, 0x63, 0x04, 0x93,                    // 0x2a: movslq (%r11,%rdx,4), %r8
+    0x4d, 0x01, 0xd8,                          // 0x2e: addq %r11, %r8
+    0x41, 0xff, 0xe0,                          // 0x31: jmpq *%r8
+    0x31, 0xc0,                                // 0x34: xorl %eax, %eax
+    0xc3,                                      // 0x36: retq
+    0xcc,
+    0xe4, 0xff, 0xff, 0xff, 0xe4, 0xff, 0xff, 0xff, 0xd3, 0xff, 0xff, 0xff, 0xf4, 0xff, 0xff, 0xff, // table
+};
+
 static size_t emit(unsigned char* at, const unsigned char* store, size_t store_size) {
     size_t n = 0;
     std::memcpy(at + n, locals, sizeof(locals)), n += sizeof(locals);
@@ -200,20 +350,22 @@ int main() {
     std::printf("control (unpatched): faults=%ld, locals %s\n", faults,
                 control == a + b + c ? "intact" : "overwritten by the exception frame");
 
-    const unsigned long long starts[] = {0x100, 0x200, 0x300, 0x400, 0x480, 0x500, 0x580, 0x600};
-    struct { const unsigned char* code; size_t size; const char* what; } const shapes[] = {
-        {copied_index, sizeof(copied_index), "index copied after the check"},
-        {spilled_index, sizeof(spilled_index), "index spilled to a stack slot"},
-        {masked_index, sizeof(masked_index), "index bounded by a mask"},
-        {table_loop, sizeof(table_loop), "local live through the table's loop"},
+    const unsigned long long starts[] = {0x100, 0x200, 0x300, 0x400, 0x480, 0x500, 0x580, 0x600, 0x680};
+    struct { const unsigned char* code; size_t size; int start; const char* what; } const shapes[] = {
+        {copied_index, sizeof(copied_index), 3, "index copied after the check"},
+        {spilled_index, sizeof(spilled_index), 4, "index spilled to a stack slot"},
+        {masked_index, sizeof(masked_index), 5, "index bounded by a mask"},
+        {table_loop, sizeof(table_loop), 6, "local live through the table's loop"},
+        {earlier_block, sizeof(earlier_block), 8, "table register set in an earlier block"},
     };
+    const int shape_count = sizeof(shapes) / sizeof(shapes[0]);
     emit(image + starts[0], long_store, sizeof(long_store));
     emit(image + starts[1], short_store, sizeof(short_store));
     std::memcpy(image + starts[2], dispatch, sizeof(dispatch));
-    for (int i = 0; i < 4; ++i) std::memcpy(image + starts[3 + i], shapes[i].code, shapes[i].size);
+    for (int i = 0; i < shape_count; ++i) std::memcpy(image + starts[shapes[i].start], shapes[i].code, shapes[i].size);
     std::memcpy(image + starts[7], tail_call, sizeof(tail_call));
     image[0x900] = 0xc3; // the tail call's target: ret
-    TheatrhythmRedZoneSegment segment{0x100, 0x700, starts, 8, nullptr, 0};
+    TheatrhythmRedZoneSegment segment{0x100, 0x700, starts, 9, nullptr, 0};
     TheatrhythmRedZoneResult result;
     int status = theatrhythm_redzone_patch(image, 0x800, trampolines, 1 << 20, &segment, 1, &result);
     std::printf("patch: status %d, %llu of %llu accesses moved, %llu not relocatable, %llu trampoline bytes\n",
@@ -222,7 +374,7 @@ int main() {
                 (unsigned long long)result.unrelocatable_memory_instruction_count,
                 (unsigned long long)result.trampoline_bytes);
     check(status == 0 && result.patched_memory_instruction_count == result.memory_instruction_count &&
-              result.memory_instruction_count >= 8, "every access moved to trampolines");
+              result.memory_instruction_count >= 9, "every access moved to trampolines");
     check(result.indirect_red_zone_function_count == 0, "every jump table resolved, the tail call not taken for one");
     check(std::memcmp(image + starts[0], locals, sizeof(locals)) == 0, "red-zone spills left in place");
 
@@ -239,10 +391,10 @@ int main() {
     unsigned long long got = call(image + starts[2], a, b, c);
     check(faults == 1 && got == a, "jump-table case store: one fault, local intact");
     check(*(unsigned*)tracked == 1u, "store reached the tracked page");
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < shape_count; ++i) {
         faults = 0;
         *(unsigned*)tracked = 0;
-        got = call(image + starts[3 + i], a, b, c);
+        got = call(image + starts[shapes[i].start], a, b, c);
         char what[128];
         std::snprintf(what, sizeof(what), "%s: one fault, local intact", shapes[i].what);
         check(faults == 1 && got == a && *(unsigned*)tracked == 1u, what);
@@ -251,6 +403,28 @@ int main() {
     faults = 0;
     got = call(image + starts[7], a, (unsigned long long)(uintptr_t)thunk, c);
     check(faults == 1 && got == a && *(unsigned*)tracked == (unsigned)a, "store before a tail call: one fault, local intact");
+
+    // Jumps the pass must not follow: each function alone, patched (never run) with trampolines of
+    // its own, must count as one with an unresolved jump.
+    struct { const unsigned char* code; size_t size; const char* what; } const refused[] = {
+        {nearest_disagrees, sizeof(nearest_disagrees), "nearest lea is another table"},
+        {two_definitions, sizeof(two_definitions), "two tables reach the load"},
+        {narrow_compare, sizeof(narrow_compare), "compare narrower than the index"},
+        {join_in_guard, sizeof(join_in_guard), "way into the guarded path"},
+        {joined_tail_call, sizeof(joined_tail_call), "way in between pointer load and jump"},
+        {pointer_table, sizeof(pointer_table), "table of absolute pointers"},
+        {late_join, sizeof(late_join), "later table jumps into the guarded path"},
+    };
+    for (size_t i = 0; i < sizeof(refused) / sizeof(refused[0]); ++i) {
+        const unsigned long long start = 0x10000 + i * 0x100;
+        std::memcpy(image + start, refused[i].code, refused[i].size);
+        TheatrhythmRedZoneSegment alone{start, 0x100, &start, 1, nullptr, 0};
+        status = theatrhythm_redzone_patch(image, 0x20000, image + (3 << 19), 1 << 19, &alone, 1, &result);
+        char what[128];
+        std::snprintf(what, sizeof(what), "refused: %s", refused[i].what);
+        check(status == 0 && result.red_zone_function_count == 1 &&
+                  result.indirect_red_zone_function_count == 1, what);
+    }
     return failures != 0;
 }
 #else

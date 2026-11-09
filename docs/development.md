@@ -48,18 +48,25 @@ Code reached only through a `switch` jump table is found by reading the table: a
 `ja`/`jae`, or by `and r32, imm` and shifts right. On top of upstream's adjacent pattern the pass
 skips unrelated instructions between the load and the add (eboot 0xd34790), follows copies of the
 index (`mov`, `movzx`, a spill through a stack slot) and flag-keeping instructions between the
-`cmp` and its branch (Il2Cpp, FMOD), and finds a table register set in an earlier block from its
-reaching definitions over the function's edges, taken only when every jump of the function
-resolves and each table comes out the same again with all edges known. The table's targets are
+`cmp` and its branch (Il2Cpp, FMOD). The table register is its one reaching definition over the
+function's edges, a `lea reg, [rip+d]` (eboot 0x16a9ff0 sets several in earlier blocks); upstream's
+nearest `lea` by address must be that one too. With all edges known each table must come out the
+same again (its register, no way into the path from the bounds check to the jump, as later tables
+can add), or the function is decoded again with that jump left unresolved; a function with an
+unresolved jump is decoded without reaching definitions, where only a path the edges cannot settle
+falls back to upstream's choice. The table's targets are
 the jump's successors in the liveness analysis (upstream gives it none, so data read again in a
 case of a loop through the table counted as dead: 0xd34790's `[rsp-0x10]`, whose loss crashed at
 0xd34962). A pointer jump (`jmp [reg]`, or `jmp reg` right after `mov reg, [reg+d]`, IL2CPP's
-method thunks) is a tail call, not a table. A function whose table the pass still cannot read
+method thunks) is a tail call, not a table, unless a known way in lands between the pointer load and
+the jump. A function whose table the pass still cannot read
 would keep those blocks unprotected; the log line counts these functions (`with an unresolved
 jump table`, 0 in 1.00 and 1.04). Functions the loader's own hooks or the ISA rewrite changed are left alone, and so are calls (a
 return address in a trampoline would have no unwind data). The log line
 `Red zone: N of M memory accesses ... moved` gives the counts; `THEATRHYTHM_REDZONE=2` lists the
-accesses it could not move and the jumps it could not follow, `=3` also every access it moved, and
+accesses it could not move and the jumps it could not follow, `=3` also every access it moved,
+each table with its targets, the tail calls and the patched spans (to check against another
+disassembler: no jump may land inside a span), and
 `=0` turns the pass off. `THEATRHYTHM_REDZONE_PROBE=<offset>[,...]` (tests, up to 4) puts a hardware
 execute breakpoint on guest instructions, on the trampoline copy of a moved one, and prints the
 hits: its debug exception writes the exception frame there as a tracking fault would. Linux needs none of this: the kernel skips

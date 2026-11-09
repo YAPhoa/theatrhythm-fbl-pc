@@ -23,6 +23,7 @@
 #include <optional>
 #include <set>
 #include <span>
+#include <string>
 #include <thread>
 #include <unordered_set>
 #include <vector>
@@ -68,6 +69,23 @@ struct DecodedFunction {
     std::vector<uintptr_t> unresolved_branches; // theatrhythm: for THEATRHYTHM_REDZONE=2
     // theatrhythm: each resolved jump table's targets: the jump's successors for liveness.
     std::map<uintptr_t, std::vector<uintptr_t>> table_targets;
+    // theatrhythm: for THEATRHYTHM_REDZONE=3: each table's address and how its register was found
+    // ('r' its one reaching definition, 'c' that and the nearest lea by address agree, 'n' the
+    // nearest lea alone, 'a' the one lea in the function), the jumps taken for tail calls, and
+    // whether the function was decoded without reaching definitions.
+    std::map<uintptr_t, std::pair<uintptr_t, char>> table_sources;
+    std::vector<uintptr_t> tail_calls;
+    bool without_reaching_definitions{};
+    // theatrhythm: the known edges backwards, for reaching definitions; built again once an
+    // instruction or a table was added (both only grow during a decode).
+    mutable std::unordered_map<uintptr_t, std::vector<uintptr_t>> predecessors;
+    mutable std::pair<size_t, size_t> predecessors_of{~size_t{}, ~size_t{}};
+};
+
+struct ResolvedTable {
+    uintptr_t table{};
+    char how{};
+    std::vector<uintptr_t> targets;
 };
 
 struct InstructionRewrite {
@@ -229,7 +247,92 @@ bool WritesRegister(const DecodedCodeInstruction& decoded, ZydisRegister reg) {
                                });
 }
 
-std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
+// theatrhythm: the values `reg` can hold at `at` (before it runs), as the set of `lea reg,[rip+d]`
+// addresses that reach it over the function's known edges: fallthrough, branches and resolved
+// tables. nullopt when a path comes from the entry, from a block with no known way in, through
+// another write of reg, or (for a volatile register) through a call.
+std::optional<std::set<uintptr_t>> ReachingTableAddresses(const DecodedFunction& function,
+                                                          uintptr_t function_start, uintptr_t at,
+                                                          ZydisRegister reg) {
+    const auto lea_address = [reg](const DecodedCodeInstruction& decoded) -> std::optional<uintptr_t> {
+        if (decoded.instruction.mnemonic != ZYDIS_MNEMONIC_LEA ||
+            decoded.operands[0].type != ZYDIS_OPERAND_TYPE_REGISTER ||
+            !IsSameRegister(decoded.operands[0].reg.value, reg) ||
+            decoded.operands[1].type != ZYDIS_OPERAND_TYPE_MEMORY ||
+            decoded.operands[1].mem.base != ZYDIS_REGISTER_RIP ||
+            decoded.operands[1].mem.index != ZYDIS_REGISTER_NONE) {
+            return std::nullopt;
+        }
+        ZyanU64 absolute_address{};
+        if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddress(&decoded.instruction, &decoded.operands[1],
+                                                   decoded.address, &absolute_address))) {
+            return std::nullopt;
+        }
+        return absolute_address;
+    };
+    auto& predecessors = function.predecessors;
+    if (function.predecessors_of !=
+        std::pair{function.instructions.size(), function.table_targets.size()}) {
+        predecessors.clear();
+        for (const auto& [address, decoded] : function.instructions) {
+            const uintptr_t next = address + decoded.instruction.length;
+            const uintptr_t target = GetRelativeTarget(decoded);
+            const auto category = decoded.instruction.meta.category;
+            if ((category == ZYDIS_CATEGORY_COND_BR || category == ZYDIS_CATEGORY_UNCOND_BR) &&
+                target) {
+                predecessors[target].push_back(address);
+            }
+            if (const auto table = function.table_targets.find(address);
+                table != function.table_targets.end()) {
+                for (const uintptr_t case_address : table->second) {
+                    predecessors[case_address].push_back(address);
+                }
+            }
+            if (!IsControlFlowTerminator(decoded.instruction)) {
+                predecessors[next].push_back(address);
+            }
+        }
+        function.predecessors_of = {function.instructions.size(), function.table_targets.size()};
+    }
+    static constexpr ZydisRegister Volatile[] = {
+        ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_RSI,
+        ZYDIS_REGISTER_RDI, ZYDIS_REGISTER_R8,  ZYDIS_REGISTER_R9,  ZYDIS_REGISTER_R10,
+        ZYDIS_REGISTER_R11};
+    const bool volatile_register =
+        std::ranges::any_of(Volatile, [&](ZydisRegister r) { return IsSameRegister(r, reg); });
+    std::set<uintptr_t> found, visited;
+    std::vector<uintptr_t> work{at};
+    while (!work.empty()) {
+        const uintptr_t to = work.back();
+        work.pop_back();
+        const auto incoming = predecessors.find(to);
+        if (to == function_start || incoming == predecessors.end()) {
+            return std::nullopt;
+        }
+        for (const uintptr_t from : incoming->second) {
+            if (!visited.insert(from).second) {
+                continue;
+            }
+            const auto& decoded = function.instructions.at(from);
+            if (visited.size() > 8192 ||
+                (volatile_register && decoded.instruction.meta.category == ZYDIS_CATEGORY_CALL)) {
+                return std::nullopt;
+            }
+            if (!WritesRegister(decoded, reg)) {
+                work.push_back(from);
+                continue;
+            }
+            const auto address = lea_address(decoded);
+            if (!address) {
+                return std::nullopt;
+            }
+            found.insert(*address);
+        }
+    }
+    return found;
+}
+
+std::optional<ResolvedTable> ResolveBoundedJumpTable(
     const DecodedFunction& function, uintptr_t branch_address, uintptr_t function_start,
     uintptr_t function_end, uintptr_t segment_start, uintptr_t segment_end,
     bool reaching_definitions) {
@@ -482,7 +585,14 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
         return absolute_address;
     };
 
-    std::set<uintptr_t> table_candidates;
+    // theatrhythm: upstream takes the nearest write of the table register by address (crossing
+    // other blocks), else the one `lea` of a table in the function. The table register comes from
+    // control flow here: its one reaching definition (eboot 0x16a9ff0 keeps several tables in r8
+    // and r14, set in earlier blocks), which the nearest lea, when there is one, must be. Without
+    // all edges known (a function decoded without reaching definitions) a single reaching lea
+    // still has to agree, several reject the table, and only an unknown path falls back to
+    // upstream's choice.
+    std::optional<uintptr_t> nearest;
     cursor = load;
     for (size_t count = 0; count < MaxPatternInstructions; ++count) {
         cursor = previous_contiguous(cursor);
@@ -492,81 +602,24 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
         if (!WritesRegister(cursor->second, table_reg)) {
             continue;
         }
-        if (const auto address = decode_table_address(cursor->second)) {
-            table_candidates.insert(*address);
-        }
+        nearest = decode_table_address(cursor->second);
         break;
     }
-    // theatrhythm: a table register set in an earlier block (eboot 0x16a9ff0 keeps several tables
-    // in r8 and r14) is the one `lea` every path to the load reaches; upstream's fallback below,
-    // every such lea in the function, finds several there and gives up. A path from the entry, a
-    // block with no known way in, another write, or a call (a volatile register) gives up too.
-    if (table_candidates.empty() && reaching_definitions) {
-        std::map<uintptr_t, std::vector<uintptr_t>> predecessors;
-        for (const auto& [address, decoded] : function.instructions) {
-            const uintptr_t next = address + decoded.instruction.length;
-            const uintptr_t target = GetRelativeTarget(decoded);
-            const auto category = decoded.instruction.meta.category;
-            if (category == ZYDIS_CATEGORY_COND_BR) {
-                predecessors[next].push_back(address);
-            }
-            if ((category == ZYDIS_CATEGORY_COND_BR || category == ZYDIS_CATEGORY_UNCOND_BR) && target) {
-                predecessors[target].push_back(address);
-            }
-            if (const auto table = function.table_targets.find(address);
-                table != function.table_targets.end()) {
-                for (const uintptr_t case_address : table->second) {
-                    predecessors[case_address].push_back(address);
-                }
-            }
-            if (category != ZYDIS_CATEGORY_COND_BR && !IsControlFlowTerminator(decoded.instruction)) {
-                predecessors[next].push_back(address);
-            }
+    const auto reaching = ReachingTableAddresses(function, function_start, load->first, table_reg);
+    std::set<uintptr_t> table_candidates;
+    char how{};
+    if (reaching) {
+        if (reaching->size() != 1 || (nearest && *nearest != *reaching->begin())) {
+            return std::nullopt;
         }
-        static constexpr ZydisRegister Volatile[] = {
-            ZYDIS_REGISTER_RAX, ZYDIS_REGISTER_RCX, ZYDIS_REGISTER_RDX, ZYDIS_REGISTER_RSI,
-            ZYDIS_REGISTER_RDI, ZYDIS_REGISTER_R8,  ZYDIS_REGISTER_R9,  ZYDIS_REGISTER_R10,
-            ZYDIS_REGISTER_R11};
-        const bool volatile_register = std::ranges::any_of(
-            Volatile, [&](ZydisRegister reg) { return IsSameRegister(reg, table_reg); });
-        std::set<uintptr_t> found, visited;
-        std::vector<uintptr_t> work{load->first};
-        bool unknown = false;
-        while (!work.empty() && !unknown) {
-            const uintptr_t at = work.back();
-            work.pop_back();
-            const auto incoming = predecessors.find(at);
-            if (at == function_start || incoming == predecessors.end()) {
-                unknown = true;
-                break;
-            }
-            for (const uintptr_t from : incoming->second) {
-                if (!visited.insert(from).second) {
-                    continue;
-                }
-                const auto& decoded = function.instructions.at(from);
-                if (visited.size() > 8192 ||
-                    (volatile_register && decoded.instruction.meta.category == ZYDIS_CATEGORY_CALL)) {
-                    unknown = true;
-                    break;
-                }
-                if (!WritesRegister(decoded, table_reg)) {
-                    work.push_back(from);
-                    continue;
-                }
-                const auto address = decode_table_address(decoded);
-                if (!address) {
-                    unknown = true;
-                    break;
-                }
-                found.insert(*address);
-            }
-        }
-        if (!unknown && found.size() == 1) {
-            table_candidates.insert(*found.begin());
-        }
-    }
-    if (table_candidates.empty()) {
+        table_candidates.insert(*reaching->begin());
+        how = nearest ? 'c' : 'r';
+    } else if (reaching_definitions) {
+        return std::nullopt;
+    } else if (nearest) {
+        table_candidates.insert(*nearest);
+        how = 'n';
+    } else {
         for (const auto& [address, decoded] : function.instructions) {
             if (address >= branch_address) {
                 break;
@@ -575,13 +628,14 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
                 table_candidates.insert(*table_address);
             }
         }
+        how = 'a';
     }
     constexpr size_t MaxJumpTableEntries = 4096;
     if (*table_size == 0 || *table_size > MaxJumpTableEntries) {
         return std::nullopt;
     }
 
-    std::optional<std::vector<uintptr_t>> resolved_targets;
+    std::optional<ResolvedTable> resolved;
     for (const uintptr_t table_address : table_candidates) {
         if (table_address < segment_start || table_address > segment_end ||
             *table_size > (segment_end - table_address) / sizeof(s32)) {
@@ -609,31 +663,36 @@ std::optional<std::vector<uintptr_t>> ResolveBoundedJumpTable(
         }
         std::ranges::sort(targets);
         targets.erase(std::ranges::unique(targets).begin(), targets.end());
-        if (resolved_targets) {
+        if (resolved) {
             return std::nullopt;
         }
-        resolved_targets = std::move(targets);
+        resolved = ResolvedTable{table_address, how, std::move(targets)};
     }
-    return resolved_targets;
+    return resolved;
 }
 
 // theatrhythm: an indirect jmp that leaves the function: through a pointer in memory (`jmp [rax]`,
 // `jmp [rip+d]`) or to a register just loaded from one (`mov rax,[rcx+8]; jmp rax`, IL2CPP's
 // method thunks). A jump table's target is computed (an add) or read with an index register, so
 // neither form is one; such a jump ends the path like a ret instead of hiding blocks behind it.
-bool IsIndirectTailCall(const DecodedFunction& function, const DecodedCodeInstruction& jump) {
+// Returns where the pointer is read (the jmp itself, or the mov), or nullopt.
+std::optional<uintptr_t> IndirectTailCall(const DecodedFunction& function,
+                                          const DecodedCodeInstruction& jump) {
     const auto& target = jump.operands[0];
     if (target.type == ZYDIS_OPERAND_TYPE_MEMORY) {
-        return target.mem.index == ZYDIS_REGISTER_NONE && !IsStackPointerRegister(target.mem.base);
+        if (target.mem.index == ZYDIS_REGISTER_NONE && !IsStackPointerRegister(target.mem.base)) {
+            return jump.address;
+        }
+        return std::nullopt;
     }
     if (target.type != ZYDIS_OPERAND_TYPE_REGISTER) {
-        return false;
+        return std::nullopt;
     }
     uintptr_t at = jump.address;
     for (int count = 0; count < 8; ++count) {
         auto previous = function.instructions.lower_bound(at);
         if (previous == function.instructions.begin()) {
-            return false;
+            return std::nullopt;
         }
         --previous;
         const auto& decoded = previous->second;
@@ -641,26 +700,35 @@ bool IsIndirectTailCall(const DecodedFunction& function, const DecodedCodeInstru
             IsControlFlowTerminator(decoded.instruction) ||
             decoded.instruction.meta.category == ZYDIS_CATEGORY_COND_BR ||
             decoded.instruction.meta.category == ZYDIS_CATEGORY_CALL) {
-            return false;
+            return std::nullopt;
         }
         if (WritesRegister(decoded, target.reg.value)) {
             const auto& operands = decoded.operands;
-            return decoded.instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
-                   operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                   ZydisRegisterGetWidth(ZYDIS_MACHINE_MODE_LONG_64, operands[0].reg.value) == 64 &&
-                   operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
-                   operands[1].mem.index == ZYDIS_REGISTER_NONE &&
-                   !IsStackPointerRegister(operands[1].mem.base);
+            if (decoded.instruction.mnemonic == ZYDIS_MNEMONIC_MOV &&
+                operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                ZydisRegisterGetWidth(ZYDIS_MACHINE_MODE_LONG_64, operands[0].reg.value) == 64 &&
+                operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY &&
+                operands[1].mem.index == ZYDIS_REGISTER_NONE &&
+                !IsStackPointerRegister(operands[1].mem.base)) {
+                return previous->first;
+            }
+            return std::nullopt;
         }
         at = previous->first;
     }
-    return false;
+    return std::nullopt;
 }
 
+// theatrhythm: `refuted` holds jumps a previous decode got wrong: tables that did not come out
+// the same once all edges were known, and tail calls with a known way in between the pointer load
+// and the jump. Both are left unresolved now.
 DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
                                uintptr_t segment_start, uintptr_t segment_end,
-                               bool reaching_definitions = true) {
+                               bool reaching_definitions = true,
+                               std::set<uintptr_t> refuted = {}) {
     DecodedFunction function;
+    function.without_reaching_definitions = !reaching_definitions;
+    std::map<uintptr_t, uintptr_t> tail_calls; // jump -> where its pointer is read
     std::vector<uintptr_t> blocks{function_start};
     std::unordered_set<uintptr_t> visited;
     std::set<uintptr_t> indirect_branches;
@@ -700,8 +768,15 @@ DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
                         branch_target >= function_start && branch_target < function_end) {
                         blocks.push_back(branch_target);
                     } else if (decoded.instruction.meta.category == ZYDIS_CATEGORY_UNCOND_BR &&
-                               branch_target == 0 && !IsIndirectTailCall(function, decoded)) {
-                        indirect_branches.insert(address);
+                               branch_target == 0) {
+                        const auto pointer_load = refuted.contains(address)
+                                                      ? std::nullopt
+                                                      : IndirectTailCall(function, decoded);
+                        if (pointer_load) {
+                            tail_calls.emplace(address, *pointer_load);
+                        } else {
+                            indirect_branches.insert(address);
+                        }
                     }
                     break;
                 }
@@ -711,19 +786,21 @@ DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
 
         bool discovered_block = false;
         for (const uintptr_t branch_address : indirect_branches) {
-            if (resolved_indirect_branches.contains(branch_address)) {
+            if (resolved_indirect_branches.contains(branch_address) ||
+                refuted.contains(branch_address)) {
                 continue;
             }
-            const auto targets =
+            const auto table =
                 ResolveBoundedJumpTable(function, branch_address, function_start, function_end,
                                         segment_start, segment_end, reaching_definitions);
-            if (!targets) {
+            if (!table) {
                 continue;
             }
             resolved_indirect_branches.insert(branch_address);
-            function.table_targets[branch_address] = *targets;
+            function.table_targets[branch_address] = table->targets;
+            function.table_sources[branch_address] = {table->table, table->how};
             discovered_block = true; // theatrhythm: its edges can resolve another table's register
-            for (const uintptr_t target : *targets) {
+            for (const uintptr_t target : table->targets) {
                 function.branch_targets.insert(target);
                 if (!visited.contains(target)) {
                     blocks.push_back(target);
@@ -735,21 +812,41 @@ DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
             break;
         }
     }
-    // theatrhythm: a table register's reaching definitions were taken from the edges known then;
-    // with all of them known each table must come out the same, or the function is decoded again
-    // without them (no block of a wrong table may be patched). An unresolved jump leaves edges
-    // unknown, so then too.
+    // theatrhythm: tables were resolved against the edges and branch targets known at the time.
+    // With all of them known each must come out the same (its register's reaching definitions,
+    // no way into its guarded path), and no tail call may have a way in between its pointer load
+    // and the jump; otherwise the function is decoded again with that jump refuted (no block of a
+    // wrong table may be patched). With reaching definitions, an unresolved jump leaves edges
+    // unknown: the function is decoded without them.
     if (reaching_definitions && indirect_branches.size() != resolved_indirect_branches.size()) {
-        return DecodeFunction(function_start, function_end, segment_start, segment_end, false);
+        return DecodeFunction(function_start, function_end, segment_start, segment_end, false,
+                              std::move(refuted));
     }
-    if (reaching_definitions) {
-        for (const auto& [branch_address, targets] : function.table_targets) {
-            const auto again = ResolveBoundedJumpTable(function, branch_address, function_start,
-                                                       function_end, segment_start, segment_end, true);
-            if (!again || *again != targets) {
-                return DecodeFunction(function_start, function_end, segment_start, segment_end, false);
-            }
+    for (const auto& [jump, pointer_load] : tail_calls) {
+        const auto inside = function.branch_targets.upper_bound(pointer_load);
+        if (inside != function.branch_targets.end() && *inside <= jump) {
+            refuted.insert(jump);
+            return DecodeFunction(function_start, function_end, segment_start, segment_end,
+                                  reaching_definitions, std::move(refuted));
         }
+    }
+    for (const auto& [branch_address, targets] : function.table_targets) {
+        const auto again =
+            ResolveBoundedJumpTable(function, branch_address, function_start, function_end,
+                                    segment_start, segment_end, reaching_definitions);
+        if (!again || again->targets != targets ||
+            again->table != function.table_sources.at(branch_address).first) {
+            if (reaching_definitions) {
+                return DecodeFunction(function_start, function_end, segment_start, segment_end,
+                                      false, std::move(refuted));
+            }
+            refuted.insert(branch_address);
+            return DecodeFunction(function_start, function_end, segment_start, segment_end, false,
+                                  std::move(refuted));
+        }
+    }
+    for (const auto& [jump, _] : tail_calls) {
+        function.tail_calls.push_back(jump);
     }
     function.has_indirect_branch = indirect_branches.size() != resolved_indirect_branches.size();
     for (const uintptr_t branch_address : indirect_branches) {
@@ -1014,6 +1111,32 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
                     std::fprintf(stderr, "Red zone: unresolved jump: guest 0x%llx (function 0x%llx)\n",
                                  static_cast<unsigned long long>(branch - module->image),
                                  static_cast<unsigned long long>(function_start - module->image));
+                }
+            }
+            // theatrhythm: THEATRHYTHM_REDZONE=3 also lists each table and its targets, and the
+            // jumps taken for tail calls, to check against another disassembler.
+            if (module->list_moved) {
+                const auto offset = [&](uintptr_t address) {
+                    return static_cast<unsigned long long>(address - module->image);
+                };
+                for (const auto& [branch, targets] : function.table_targets) {
+                    const auto& [table, how] = function.table_sources.at(branch);
+                    std::string line;
+                    for (const uintptr_t target : targets) {
+                        char text[24];
+                        std::snprintf(text, sizeof(text), " 0x%llx", offset(target));
+                        line += text;
+                    }
+                    std::fprintf(stderr,
+                                 "Red zone: table: jump 0x%llx table 0x%llx %c%s targets%s "
+                                 "(function 0x%llx)\n",
+                                 offset(branch), offset(table), how,
+                                 function.without_reaching_definitions ? " fallback" : "",
+                                 line.c_str(), offset(function_start));
+                }
+                for (const uintptr_t jump : function.tail_calls) {
+                    std::fprintf(stderr, "Red zone: tail call: guest 0x%llx (function 0x%llx)\n",
+                                 offset(jump), offset(function_start));
                 }
             }
             for (const auto& [address, decoded] : function.instructions) {
@@ -1468,6 +1591,15 @@ void PatchRedZoneMemoryInstructions(PatchModule* module, u64 segment_addr, u64 s
             }
             record_rewrites(site_span);
             patched_spans.emplace_back(site_span.patch_start, site_span.continuation);
+        }
+        // theatrhythm: THEATRHYTHM_REDZONE=3 lists the patched spans: no jump may land inside one.
+        if (module->list_moved) {
+            for (const auto& [start, end] : patched_spans) {
+                std::fprintf(stderr, "Red zone: span: guest 0x%llx-0x%llx (function 0x%llx)\n",
+                             static_cast<unsigned long long>(start - module->image),
+                             static_cast<unsigned long long>(end - module->image),
+                             static_cast<unsigned long long>(function_start - module->image));
+            }
         }
     }
 }
