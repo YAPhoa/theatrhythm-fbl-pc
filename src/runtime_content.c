@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #define INVALID_ID ((int32_t)0x805a1000)
 #define NOT_LOADED ((int32_t)0x805a1001)
 #define PARAMETER ((int32_t)0x80d90002)
@@ -110,7 +111,7 @@ static ABI int32_t param_int(uint32_t id,int32_t *out) {
 typedef struct { char label[LABEL_SIZE]; char folder[700]; } Addon;
 static Addon addons[MAX_ADDONS];
 static unsigned addon_count, addons_scanned;
-static char extra_dir[600];
+static char extra_dir[600], game_dir[600];
 static int addon_order(const void *a,const void *b) { return strcmp(((const Addon *)a)->label,((const Addon *)b)->label); }
 static int find_addon(const char *label) {
     for (unsigned i=0;i<addon_count;++i) if (!strncmp(label,addons[i].label,LABEL_SIZE-1)) return (int)i;
@@ -121,24 +122,55 @@ static int is_folder(const char *path) {
     if (!d) return 0;
     closedir(d); return 1;
 }
+/* 1 when two host paths name the same folder (Windows: either slash, any case). */
+static int same_folder(const char *a,const char *b) {
+    char x[PATH_MAX], y[PATH_MAX];
+    if (!a[0] || !b[0] || !realpath(a,x) || !realpath(b,y)) return 0;
+    size_t i=0, n=strlen(x), m=strlen(y);
+    while (n>1 && (x[n-1]=='/' || x[n-1]=='\\')) --n;
+    while (m>1 && (y[m-1]=='/' || y[m-1]=='\\')) --m;
+    if (n!=m) return 0;
+    for (; i<n; ++i) {
+        char c=x[i]=='\\' ? '/' : x[i], d=y[i]=='\\' ? '/' : y[i];
+#ifdef _WIN32
+        if (c>='A' && c<='Z') c+='a'-'A';
+        if (d>='A' && d<='Z') d+='a'-'A';
+#endif
+        if (c!=d) return 0;
+    }
+    return 1;
+}
+/* The package's own folders, when the extra DLC folder is the game folder itself (its DLC kept
+ * next to Media/): they are not add-ons, and mounting Media's StreamingAssets as one would fill
+ * the mount table. */
+static int game_folder_part(const char *name) {
+    static const char *const own[]={"Media","sce_module","sce_sys"};
+    for (size_t i=0;i<sizeof(own)/sizeof(*own);++i) if (!strcasecmp(name,own[i])) return 1;
+    return 0;
+}
 /* An extra DLC folder holds the add-ons, or (as shadPS4's addcont folder does) a <title ID>/
- * folder that holds them. */
-void runtime_content_extra_dir(const char *folder,const char *title_id) {
+ * folder that holds them. game: the game folder, never an add-on itself (in a folder of dumps
+ * it is the <title ID>/ folder). */
+void runtime_content_extra_dir(const char *folder,const char *title_id,const char *game) {
+    snprintf(game_dir,sizeof(game_dir),"%s",game ? game : "");
     if (!folder || !folder[0]) { extra_dir[0]=0; return; }
     char titled[600];
     if (title_id && title_id[0] && (size_t)snprintf(titled,sizeof(titled),"%s/%s",folder,title_id)<sizeof(titled) && is_folder(titled))
         snprintf(extra_dir,sizeof(extra_dir),"%s",titled);
     else snprintf(extra_dir,sizeof(extra_dir),"%s",folder);
-    printf("Runtime: extra DLC folder %s%s\n",extra_dir,is_folder(extra_dir) ? "" : " (missing)");
+    printf("Runtime: extra DLC folder %s%s\n",extra_dir,!is_folder(extra_dir) ? " (missing)" :
+           same_folder(extra_dir,game_dir) ? " is the game folder: its Media, sce_module and sce_sys folders are not add-ons" : "");
 }
 static void scan_folder(const char *path) {
     DIR *d=opendir(path);
     if (!d) return;
+    int in_game=same_folder(path,game_dir);
     for (struct dirent *e; addon_count<MAX_ADDONS && (e=readdir(d));) {
         size_t n=strlen(e->d_name);
-        if (e->d_name[0]=='.' || n>=LABEL_SIZE || find_addon(e->d_name)>=0) continue;
+        if (e->d_name[0]=='.' || n>=LABEL_SIZE || find_addon(e->d_name)>=0 || (in_game && game_folder_part(e->d_name))) continue;
         Addon *a=&addons[addon_count];
-        if ((size_t)snprintf(a->folder,sizeof(a->folder),"%s/%s",path,e->d_name)>=sizeof(a->folder) || !is_folder(a->folder)) continue;
+        if ((size_t)snprintf(a->folder,sizeof(a->folder),"%s/%s",path,e->d_name)>=sizeof(a->folder) || !is_folder(a->folder) ||
+            same_folder(a->folder,game_dir)) continue;
         memcpy(a->label,e->d_name,n+1);
         ++addon_count;
     }
@@ -186,24 +218,26 @@ static ABI int32_t free_space_kb(const char *mount,uint64_t *kb) {
 /* Files under <add-on>/StreamingAssets/ are served in place of (or next to) the game's
  * Media/StreamingAssets/ files of the same relative path, at both of the game's roots: plain files
  * such as an Event stage's Movie/EMS/MUSICnnnnnnn.mp4 are not Addressables assets. */
-static void overlay_streaming_assets(const char *host,const char *relative) {
+static unsigned overlay_streaming_assets(const char *host,const char *relative) {
     static const char *const roots[]={"/app0/Media/StreamingAssets","/archive/mount/point/Media/StreamingAssets"};
     char path[700]; snprintf(path,sizeof(path),"%s/StreamingAssets%s",host,relative);
     DIR *d=opendir(path);
     if (!d) {
         for (size_t i=0;i<sizeof(roots)/sizeof(*roots);++i) {
             char guest[256]; snprintf(guest,sizeof(guest),"%s%s",roots[i],relative);
-            if (runtime_file_mount(guest,path)) { printf("Runtime: add-on file %s not mounted (mount table full)\n",guest); return; }
+            if (runtime_file_mount(guest,path)) return 1;
         }
         printf("Runtime: add-on file Media/StreamingAssets%s\n",relative);
-        return;
+        return 0;
     }
+    unsigned failed=0; /* files the mount table had no room for */
     for (struct dirent *e; (e=readdir(d));) {
         if (e->d_name[0]=='.') continue;
         char next[512]; snprintf(next,sizeof(next),"%s/%s",relative,e->d_name);
-        overlay_streaming_assets(host,next);
+        failed+=overlay_streaming_assets(host,next);
     }
     closedir(d);
+    return failed;
 }
 /* sceAppContentAddcontMount(service, entitlement, mount): /addcont<index> (16-byte mount point)
  * names the add-on's folder; NOT_FOUND for a label that is not installed. */
@@ -220,7 +254,11 @@ static ABI int32_t addon_mount(uint32_t service,const char *label,char *mount) {
     if (runtime_file_mount(guest,host)) return NOT_FOUND;
     char assets[720]; snprintf(assets,sizeof(assets),"%s/StreamingAssets",host);
     DIR *d=opendir(assets);
-    if (d) { closedir(d); overlay_streaming_assets(host,""); }
+    if (d) {
+        closedir(d);
+        unsigned failed=overlay_streaming_assets(host,"");
+        if (failed) printf("Runtime: add-on %s: %u StreamingAssets files not mounted (mount table full)\n",addons[i].label,failed);
+    }
     memset(mount,0,16); memcpy(mount,guest,strlen(guest));
     printf("Runtime: add-on %s mounted at %s\n",addons[i].label,guest);
     return 0;

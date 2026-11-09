@@ -118,7 +118,10 @@ too, when there is one, since the game reads that one first), and writes `paths.
 and save folders and, when one is chosen, `dlc=`: an extra folder of add-ons. The launcher passes it
 as `--dlc` (`THEATRHYTHM_DLC_DIR` overrides it), and `src/runtime_content.c` lists the folders in
 `<save>/addcont/` and then those in the extra folder (its `<TITLE_ID>/` subfolder when it has one, as
-shadPS4's `addcont` does) whose label the save folder lacks. No release contains a save folder, so
+shadPS4's `addcont` does) whose label the save folder lacks. The game folder is never an add-on: when
+it is the extra folder (DLC kept inside the dump), its own `Media`, `sce_module` and `sce_sys` are
+skipped, since mounting `Media` as an add-on would overlay the game's whole StreamingAssets and fill
+the mount table. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
 window: `theatrhythm-setup.exe --help`.

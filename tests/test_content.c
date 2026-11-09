@@ -1,5 +1,6 @@
 /* Add-ons: the save folder's addcont/ and an extra DLC folder (shadPS4's addcont, with its title ID
- * folder, or a plain folder of add-ons) are listed together; the save folder's copy of a label wins. */
+ * folder, or a plain folder of add-ons) are listed together; the save folder's copy of a label wins.
+ * The game folder is never an add-on, nor are its own folders when it is the extra DLC folder. */
 #undef NDEBUG /* the checks are asserts; release builds define NDEBUG */
 #include "../src/runtime_content.c"
 #include <assert.h>
@@ -50,6 +51,15 @@ int main(void) {
     snprintf(path,sizeof(path),"%s/shadps4/CUSA32853/SHARED",root); folder(path);
     snprintf(path,sizeof(path),"%s/shadps4/CUSA32853/notes.txt",root); file(path);
     snprintf(path,sizeof(path),"%s/shadps4/CUSA32853/LABEL_LONGER_THAN_16",root); folder(path);
+    /* A game dump with its DLC kept inside it, in a folder of dumps (and of other DLC). */
+    char game[300];
+    snprintf(path,sizeof(path),"%s/dumps",root); folder(path);
+    snprintf(game,sizeof(game),"%s/dumps/CUSA32853",root); folder(game);
+    const char *const parts[]={"Media","sce_module","sce_sys","DLCPACK000000000"};
+    for (size_t i=0;i<sizeof(parts)/sizeof(*parts);++i) { snprintf(path,sizeof(path),"%s/%s",game,parts[i]); folder(path); }
+    snprintf(path,sizeof(path),"%s/dumps/Theatrhythm",root); folder(path); /* the game under another name */
+    snprintf(path,sizeof(path),"%s/dumps/Theatrhythm/Media",root); folder(path);
+    snprintf(path,sizeof(path),"%s/dumps/OTHERDLC",root); folder(path);
 
     uint32_t profile[5]={1,0,0,0,0};
     unsigned char init[32]={0}, boot[40];
@@ -64,7 +74,7 @@ int main(void) {
     /* shadPS4's addcont: its CUSA32853 folder is the one read. */
     rescan();
     snprintf(path,sizeof(path),"%s/shadps4",root);
-    runtime_content_extra_dir(path,"CUSA32853");
+    runtime_content_extra_dir(path,"CUSA32853",game);
     listed(text,sizeof(text));
     assert(!strcmp(text,"EXTRA,SAVEONLY,SHARED"));
     assert(!addon_mount(0,"EXTRA",mount) && !strcmp(mount,"/addcont0"));
@@ -78,18 +88,48 @@ int main(void) {
     /* The title ID folder itself works the same. */
     rescan();
     snprintf(path,sizeof(path),"%s/shadps4/CUSA32853",root);
-    runtime_content_extra_dir(path,"CUSA32853");
+    runtime_content_extra_dir(path,"CUSA32853",game);
     listed(text,sizeof(text));
     assert(!strcmp(text,"EXTRA,SAVEONLY,SHARED"));
 
     /* A folder that is gone lists only the save folder's add-ons. */
     rescan();
     snprintf(path,sizeof(path),"%s/gone",root);
-    runtime_content_extra_dir(path,"CUSA32853");
+    runtime_content_extra_dir(path,"CUSA32853",game);
     listed(text,sizeof(text));
     assert(!strcmp(text,"SAVEONLY,SHARED"));
 
-    const char *const made[]={"shadps4/CUSA32853/EXTRA","shadps4/CUSA32853/SHARED","shadps4/CUSA32853/LABEL_LONGER_THAN_16",
+    /* The game folder as the extra DLC folder (Windows: in another spelling): only its DLC. */
+    rescan();
+    runtime_content_extra_dir(game,"CUSA32853",game);
+    listed(text,sizeof(text));
+    assert(!strcmp(text,"DLCPACK000000000,SAVEONLY,SHARED"));
+#ifdef _WIN32
+    rescan();
+    snprintf(path,sizeof(path),"%s\\DUMPS\\cusa32853\\",root);
+    runtime_content_extra_dir(path,NULL,game);
+    listed(text,sizeof(text));
+    assert(!strcmp(text,"DLCPACK000000000,SAVEONLY,SHARED"));
+#endif
+
+    /* A folder of dumps: its CUSA32853 folder is the game, so the same. */
+    rescan();
+    snprintf(path,sizeof(path),"%s/dumps",root);
+    runtime_content_extra_dir(path,"CUSA32853",game);
+    listed(text,sizeof(text));
+    assert(!strcmp(text,"DLCPACK000000000,SAVEONLY,SHARED"));
+
+    /* Without a title ID folder, the game folder among the add-ons is left out. */
+    rescan();
+    snprintf(path,sizeof(path),"%s/dumps/Theatrhythm",root);
+    char other[300]; snprintf(other,sizeof(other),"%s/dumps",root);
+    runtime_content_extra_dir(other,NULL,path);
+    listed(text,sizeof(text));
+    assert(!strcmp(text,"CUSA32853,OTHERDLC,SAVEONLY,SHARED"));
+
+    const char *const made[]={"dumps/CUSA32853/Media","dumps/CUSA32853/sce_module","dumps/CUSA32853/sce_sys",
+                              "dumps/CUSA32853/DLCPACK000000000","dumps/CUSA32853","dumps/Theatrhythm/Media",
+                              "dumps/Theatrhythm","dumps/OTHERDLC","dumps","shadps4/CUSA32853/EXTRA","shadps4/CUSA32853/SHARED","shadps4/CUSA32853/LABEL_LONGER_THAN_16",
                               "shadps4/CUSA32853","shadps4","save/addcont/SAVEONLY","save/addcont/SHARED","save/addcont","save",""};
     snprintf(path,sizeof(path),"%s/shadps4/CUSA32853/notes.txt",root); remove(path);
     for (size_t i=0;i<sizeof(made)/sizeof(*made);++i) {
