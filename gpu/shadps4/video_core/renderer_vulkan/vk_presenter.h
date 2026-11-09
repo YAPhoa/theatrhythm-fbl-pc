@@ -103,6 +103,7 @@ private:
     Frame* GetRenderFrame();
 
     void RecreateFrame(Frame* frame, u32 width, u32 height);
+    void UpdateSwapchain();
 
     void SetExpectedGameSize(s32 width, s32 height);
 

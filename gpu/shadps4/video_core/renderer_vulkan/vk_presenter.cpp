@@ -823,16 +823,26 @@ Frame* Presenter::PrepareBlankFrame(bool present_thread) {
     return frame;
 }
 
-void Presenter::PresentLoadingFrame() {
-    if (window.IsMinimized() || window.GetWidth() <= 0 || window.GetHeight() <= 0) {
-        return;
-    }
+// theatrhythm: a VSync change or a new window size recreates the swapchain. vkDeviceWaitIdle and the
+// swapchain's destruction need every queue to themselves (no vkQueueSubmit from the GPU threads at
+// the same time), so they hold submit_mutex like Present's own recreation does. Without it NVIDIA
+// lost the device when VSync changed around an exclusive fullscreen mode switch.
+void Presenter::UpdateSwapchain() {
+    std::scoped_lock submit_lock{Scheduler::submit_mutex};
     swapchain.UpdateVsync();
     if (window.GetWidth() != swapchain.GetWidth() || window.GetHeight() != swapchain.GetHeight()) {
         swapchain.Recreate(window.GetWidth(), window.GetHeight());
     }
+}
+
+void Presenter::PresentLoadingFrame() {
+    if (window.IsMinimized() || window.GetWidth() <= 0 || window.GetHeight() <= 0) {
+        return;
+    }
+    UpdateSwapchain();
     if (!swapchain.AcquireNextImage()) {
         if (!window.IsMinimized() && window.GetWidth() > 0 && window.GetHeight() > 0) {
+            std::scoped_lock submit_lock{Scheduler::submit_mutex};
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
         if (!swapchain.AcquireNextImage()) {
@@ -906,13 +916,11 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
 
     // Recreate the swapchain if the window was resized.
-    swapchain.UpdateVsync();
-    if (window.GetWidth() != swapchain.GetWidth() || window.GetHeight() != swapchain.GetHeight()) {
-        swapchain.Recreate(window.GetWidth(), window.GetHeight());
-    }
+    UpdateSwapchain();
 
     if (!swapchain.AcquireNextImage()) {
         if (!window.IsMinimized() && window.GetWidth() > 0 && window.GetHeight() > 0) {
+            std::scoped_lock submit_lock{Scheduler::submit_mutex};
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
         if (!swapchain.AcquireNextImage()) {
