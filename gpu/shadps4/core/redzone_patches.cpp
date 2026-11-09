@@ -65,6 +65,8 @@ struct DecodedFunction {
     bool uses_red_zone{};
     bool has_indirect_branch{};
     bool requires_conservative_red_zone_tracking{};
+    // theatrhythm: each resolved jump table's targets: the jump's successors for liveness.
+    std::map<uintptr_t, std::vector<uintptr_t>> table_targets;
 };
 
 struct InstructionRewrite {
@@ -499,6 +501,7 @@ DecodedFunction DecodeFunction(uintptr_t function_start, uintptr_t function_end,
                 continue;
             }
             resolved_indirect_branches.insert(branch_address);
+            function.table_targets[branch_address] = *targets;
             for (const uintptr_t target : *targets) {
                 function.branch_targets.insert(target);
                 if (!visited.contains(target)) {
@@ -574,6 +577,15 @@ void AnalyzeRedZoneLiveness(DecodedFunction& function) {
                 add_successor(branch_target);
             } else if (decoded.instruction.meta.category == ZYDIS_CATEGORY_UNCOND_BR) {
                 add_successor(branch_target);
+                // theatrhythm: upstream gives a jump table's `jmp reg` no successors, so data
+                // read again in its cases (eboot 0xd34790's [rsp-0x10], reloaded in each case of
+                // its loop) counted as dead before the dispatch and after the last use in a case.
+                if (const auto table = function.table_targets.find(decoded.address);
+                    table != function.table_targets.end()) {
+                    for (const uintptr_t target : table->second) {
+                        add_successor(target);
+                    }
+                }
             } else if (!IsControlFlowTerminator(decoded.instruction)) {
                 add_successor(next_address);
             }

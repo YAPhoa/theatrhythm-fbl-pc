@@ -61,6 +61,31 @@ static const unsigned char dispatch[] = {
     0xef, 0xff, 0xff, 0xff, 0xef, 0xff, 0xff, 0xff, // table: case-table (twice)
 };
 
+// A loop through its table (eboot 0xd34790): the store comes after the case's last use of the
+// local, which is read again on the next pass, so the local is live there only through the
+// table's edge back into the case. r9d counts the passes.
+static const unsigned char table_loop[] = {
+    0x48, 0x89, 0x74, 0x24, 0xc0,             // mov %rsi,-0x40(%rsp)
+    0x4c, 0x8d, 0x15, 0x34, 0x00, 0x00, 0x00, // lea table(%rip),%r10
+    0x45, 0x31, 0xc9,                         // xor %r9d,%r9d
+    0x31, 0xc0,                               // head: xor %eax,%eax
+    0x83, 0xf8, 0x01,                         // cmp $1,%eax
+    0x77, 0x23,                               // ja out
+    0x49, 0x63, 0x0c, 0x82,                   // movslq (%r10,%rax,4),%rcx
+    0x49, 0x89, 0xfb,                         // mov %rdi,%r11
+    0x4c, 0x01, 0xd1,                         // add %r10,%rcx
+    0xff, 0xe1,                               // jmp *%rcx
+    0x45, 0x85, 0xc9,                         // case: test %r9d,%r9d
+    0x75, 0x0c,                               // jnz second
+    0x41, 0xc7, 0x03, 0x01, 0x00, 0x00, 0x00, // movl $1,(%r11)
+    0x41, 0xff, 0xc1,                         // inc %r9d
+    0xeb, 0xdc,                               // jmp head
+    0x48, 0x8b, 0x44, 0x24, 0xc0,             // second: mov -0x40(%rsp),%rax
+    0xc3,                                     // ret
+    0x31, 0xc0, 0xc3,                         // out: xor %eax,%eax; ret
+    0xcc, 0xcc, 0xcc, 0xcc,
+    0xe2, 0xff, 0xff, 0xff, 0xe2, 0xff, 0xff, 0xff, // table: case-table (twice)
+};
 static size_t emit(unsigned char* at, const unsigned char* store, size_t store_size) {
     size_t n = 0;
     std::memcpy(at + n, locals, sizeof(locals)), n += sizeof(locals);
@@ -108,11 +133,12 @@ int main() {
     std::printf("control (unpatched): faults=%ld, locals %s\n", faults,
                 control == a + b + c ? "intact" : "overwritten by the exception frame");
 
-    const unsigned long long starts[] = {0x100, 0x200, 0x300};
+    const unsigned long long starts[] = {0x100, 0x200, 0x300, 0x400};
     emit(image + starts[0], long_store, sizeof(long_store));
     emit(image + starts[1], short_store, sizeof(short_store));
     std::memcpy(image + starts[2], dispatch, sizeof(dispatch));
-    TheatrhythmRedZoneSegment segment{0x100, 0x300, starts, 3, nullptr, 0};
+    std::memcpy(image + starts[3], table_loop, sizeof(table_loop));
+    TheatrhythmRedZoneSegment segment{0x100, 0x380, starts, 4, nullptr, 0};
     TheatrhythmRedZoneResult result;
     int status = theatrhythm_redzone_patch(image, 0x800, trampolines, 1 << 20, &segment, 1, &result);
     std::printf("patch: status %d, %llu of %llu accesses moved, %llu not relocatable, %llu trampoline bytes\n",
@@ -138,6 +164,10 @@ int main() {
     unsigned long long got = call(image + starts[2], a, b, c);
     check(faults == 1 && got == a, "jump-table case store: one fault, local intact");
     check(*(unsigned*)tracked == 1u, "store reached the tracked page");
+    faults = 0;
+    *(unsigned*)tracked = 0;
+    got = call(image + starts[3], a, b, c);
+    check(faults == 1 && got == a && *(unsigned*)tracked == 1u, "local live through the table's loop: one fault, local intact");
     return failures != 0;
 }
 #else
