@@ -21,6 +21,8 @@ dump of your own copy of the game (PS4, version 1.00).
   and its Live Info controller redrawn for keyboard and Xbox. DualSense works too.
 - **Easy setup:** point the installer at your dump, and it can add a desktop shortcut (on Linux,
   an application menu entry).
+- **Today's Top Hits category:** Music Stages lists the day's marked songs on their own, after All
+  and Favorites. The setup can turn it off.
 - **Custom songs:** [dlcmaker](tools/dlcmaker/README.md) turns your own music, charts and art into
   add-on packs that show up in Music Stages next to the game's DLC, on battle, event or field stages.
   It's a separate download on the releases page: `theatrhythm-dlcmaker.exe` (Windows) or

@@ -151,7 +151,8 @@ skipped, since mounting `Media` as an add-on would overlay the game's whole Stre
 the mount table. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
-window: `theatrhythm-setup.exe --help`.
+window: `theatrhythm-setup.exe --help`. The setup's Patches section is saved in `paths.ini` too
+(`top_hits`), since `settings.ini` has a copy in the save folder that would win over the setup's.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
 that `run.py` would pass (`src/launch.c`). Without a console its output goes to
@@ -280,6 +281,16 @@ quit event as closing the window, once no save is mounted, backed up or written
 (`WindowMain::Update`: a second window of the same scene throws "An item with the same key has
 already been added", and an exception through a hook stub ends the game) or when
 `WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
+
+Music Stages has a Top Hits category after All and Favorites (`src/runtime_top_hits.c`), listing the
+day's songs, which the game only marks (`MusicRecord.PickUp`). It is one more `SortDataSpecial` with a
+`SortType` of 3, the enum's `Max`, and most of the game's code handles that as it is: `SelectSort` and
+the order of the list compare types, and an unknown type falls back to another entry of the list (All, in a
+run with the patch off and a save that last used this one). `filterItem` reads the mark, `filterList` hides the entry
+when there are no such songs and in Multi Battle, and the label and the title take All's route with a
+term of their own, which the translation hook in `runtime_display_page.c` answers in English: the
+game's "Today's Top Hit!" mark is a picture, so it has no text to reuse. `top_hits=0` in `paths.ini` (or
+`THEATRHYTHM_TOP_HITS=0`) leaves the categories as they are.
 
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`

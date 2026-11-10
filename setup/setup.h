@@ -25,12 +25,14 @@ struct Options {
     std::optional<std::filesystem::path> copy_saves_from; // the old save folder, whose saves go to `save`
     std::optional<bool> skip_opening; // settings.ini skip_opening to write; unset keeps what is there
     std::filesystem::path dlc; // optional: one more folder of DLC (e.g. shadPS4's addcont); empty for none
+    bool top_hits = true; // Today's Top Hits as a category on Music Stages (src/runtime_top_hits.c)
 };
 
-// The folders a release folder's paths.ini names.
+// What a release folder's paths.ini names.
 struct Paths {
     std::filesystem::path game, save;
     std::filesystem::path dlc; // empty when paths.ini names none
+    bool top_hits = true;
 };
 
 // Save data in a save folder (what the runtime keeps there apart from the log).
@@ -67,6 +69,10 @@ std::optional<Paths> read_paths(const std::filesystem::path& root);
 std::filesystem::path user_paths_ini();
 // read_paths(root), else the per-user copy: the folders to start from in a release just unpacked.
 std::optional<Paths> remembered_paths(const std::filesystem::path& root);
+// Changes the Top Hits patch in `root`/paths.ini (and the per-user copy) and nothing else, for a
+// start with no new install.
+// Throws Error.
+void write_top_hits(const std::filesystem::path& root, bool on);
 // save/ in the release folder: a release is never zipped with one, so unpacking a newer release over
 // the folder keeps the saves.
 std::filesystem::path default_save();
