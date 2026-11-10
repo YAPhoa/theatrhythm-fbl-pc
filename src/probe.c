@@ -816,7 +816,7 @@ static void configure_button_icons(const char *boot) {
     runtime_button_icons_configure(icons,pad,theatrhythm_button_icons());
 }
 
-/* Display Settings icon in the Options menu: the Config atlas bundle scripts/config_icon.py wrote
+/* Display Settings and Cheats icons in the Options menu: the Config atlas bundle scripts/config_icon.py wrote
  * next to boot.bin, served in place of the game's at both paths the game may open it by. 1 when
  * mounted. */
 static int mount_config_icon(const char *boot) {
@@ -827,11 +827,11 @@ static int mount_config_icon(const char *boot) {
     char host[512], guest[128];
     snprintf(host,sizeof(host),"%.*sconfig_icon/display.bundle",slash ? (int)(slash-boot+1) : 0,boot);
     FILE *f=fopen(host,"rb");
-    if (!f) { printf("Config icon: %s missing (python run.py prepare); Display Settings shows Logo Usage's icon\n",host); return 0; }
+    if (!f) { printf("Config icon: %s missing (python run.py prepare); Display Settings and Cheats show Logo Usage's icon\n",host); return 0; }
     fclose(f);
     for (size_t i=0;i<sizeof(prefixes)/sizeof(*prefixes);++i) {
         snprintf(guest,sizeof(guest),"%s%s",prefixes[i],bundle);
-        if (runtime_file_mount(guest,host)) { printf("Config icon: cannot mount %s; Display Settings shows Logo Usage's icon\n",host); return 0; }
+        if (runtime_file_mount(guest,host)) { printf("Config icon: cannot mount %s; Display Settings and Cheats show Logo Usage's icon\n",host); return 0; }
     }
     printf("Config icon: %s\n",host);
     return 1;
@@ -1287,6 +1287,9 @@ int main(int argc, char **argv) {
             if (!strcmp(modules[m].name, "Il2CppUserAssemblies.prx") &&
                 !runtime_exit_prompt_install(image, modules[m].base, exit_stub, page_size, display_page))
                 protect(exit_stub, page_size, 5);
+        for (uint64_t m = 0; m < module_count; ++m)
+            if (theatrhythm_unlock_songs() && !strcmp(modules[m].name, "Il2CppUserAssemblies.prx"))
+                runtime_unlock_songs_install(image, modules[m].base);
         runtime_game_code_close();
     }
 #ifdef _WIN32

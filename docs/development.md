@@ -140,8 +140,7 @@ runtime already implements) and appends the matches to `src/import_names.inc`.
 
 `theatrhythm-setup.exe` (`setup/`) runs `prepare/run.py prepare` into `game/` beside it, rewrites the
 game's instructions for this CPU if needed, writes `settings.ini` from the template when there is
-none, sets its `skip_opening` line from the window's checkbox (in the save folder's `settings.ini`
-too, when there is one, since the game reads that one first), and writes `paths.ini` with the game
+none, and writes `paths.ini` with the game
 and save folders and, when one is chosen, `dlc=`: an extra folder of add-ons. The launcher passes it
 as `--dlc` (`THEATRHYTHM_DLC_DIR` overrides it), and `src/runtime_content.c` lists the folders in
 `<save>/addcont/` and then those in the extra folder (its `<TITLE_ID>/` subfolder when it has one, as
@@ -196,10 +195,29 @@ highlights sit on its buttons, so `src/runtime_xbox_pad.c` hooks MSGamePad's per
 the atlas shows the Xbox pad it gives the base renderer a FullRect sprite over the same area and
 moves the highlight groups onto the Xbox buttons, and puts both back for the DualShock 4.
 
-Display Settings is an eighth Options button (`src/runtime_display_page.c`) on the game's own settings page. Its icon
-sits in an unused corner of the Options atlas, one of the game's encrypted bundles: `run.py prepare`
-decrypts it with the key from the game's own metadata, adds `assets/config_icon/display.bc7` and
-encrypts it again (`scripts/config_icon.py`), and the runtime serves it in place of the game's file.
+Display Settings is an eighth Options button (`src/runtime_display_page.c`) on the game's own settings page, and
+Cheats a ninth. Their icons sit in an unused corner of the Options atlas, one of the game's encrypted
+bundles: `run.py prepare` decrypts it with the key from the game's own metadata, adds
+`assets/config_icon/display.bc7` and `cheats.bc7` and encrypts it again (`scripts/config_icon.py`),
+and the runtime serves it in place of the game's file.
+
+Both buttons are copies of Logo Usage's button and open the game's MS Settings page, which then
+lists the rows of one of them (`page_mode`). The Cheats page shows two of the page's On/Off rows as
+**Unlock all music** (`unlock_songs`) and **Skip opening movie** (`skip_opening`), the keys below
+`[cheats]` in `settings.ini`. Both are read once at the start, so the page only sets the value for
+the next start (`theatrhythm_cheat_get/set`), saves it when the page is left, and shows a notice
+when the song unlock now differs from the one in place. In `gpu/shim/theatrhythm_settings.cpp` a
+`[name]` line starts a section and every key is read wherever it is, but a line outside `[cheats]`
+never changes what `[cheats]` sets: `skip_opening` was a plain key up to v1.0.5d (the setup, which
+no longer touches it, wrote it), so an older file's line still counts until the section has one. A
+save writes the cheats below `[cheats]` (adding the section to a file that has none) and gives an
+older line outside it the same value.
+The buttons' places in the grid come from the menu's own cursor moves, not from button numbers:
+the game stores a move only where the cursor does not go to the next button that way (a column or
+the reading order wrapping around), so Legal Info is the button Logo Usage's Left leads to, and
+Live Info the one Legal Info's Down wraps to. The Cheats copy is registered with the menu only once
+its moves are linked; a menu whose last column is not like that keeps the copy hidden and the log
+says so (`Display page: no Cheats button in game ...`).
 
 Its values apply while the game runs: the window thread switches the display mode and resolution
 (`gpu/shim/window.cpp`), and the presenter rebuilds the swapchain for a new VSync choice or window
@@ -218,8 +236,8 @@ picker does (`LanguageController.SwitchLanguage` with `FontResourceManager.Insta
 `Backup.ReserveSave`), byte patches keep the choice through the setter and a reload, and a stub
 gives the picker of six a cursor on English when the language is one of the other three.
 
-These patches, the field walk below, the DLC window's bonus row (`src/runtime_dlc_bonus.c`) and the
-logo and opening skip (`src/runtime_skip_opening.c`) work on every game version they know the code of (1.00 and 1.04 so far). The log's first lines name the version (`Game: CUSA32853 version 01.04, ...`: param.sfo's
+These patches, the field walk below, the DLC window's bonus row (`src/runtime_dlc_bonus.c`), the
+logo and opening skip (`src/runtime_skip_opening.c`) and the song lists' unlock (`src/runtime_unlock_songs.c`) work on every game version they know the code of (1.00 and 1.04 so far). The log's first lines name the version (`Game: CUSA32853 version 01.04, ...`: param.sfo's
 `APP_VER` and the module's SHA-256 from `link.json`; a dump that mixes two versions' files says so).
 `src/runtime_game_code.c` finds each place the patches use by its C# name in the game's own
 metadata (`Media/Metadata/global-metadata.dat` and the module's code generation tables, as
@@ -246,7 +264,8 @@ indieszero) are a timeline in the StartUpLogo scene. Its markers reach
 director's time to the timeline's end, where type 2 stops the sounds with a 1 s fade if a logo was
 skipped and picks the next scene: first-time setup when it
 is due, else the Opening scene, whose movie can be skipped with Options only once
-`UserInfo.LookedOpeningDemo` is set. With `skip_opening=1` in `settings.ini` (the setup's checkbox),
+`UserInfo.LookedOpeningDemo` is set. With the cheat `skip_opening=1` in `settings.ini` (Options >
+Cheats),
 `src/runtime_skip_opening.c` hooks both scenes:
 - `StartUpLogoMain.OnUpdate` goes, while the scene is not marked skipped (its first frame, before
   the director has fired a marker), to a stub that marks it and runs type 5's code in
@@ -257,6 +276,27 @@ is due, else the Opening scene, whose movie can be skipped with Options only onc
 - The first `OpeningMain.OnReady` of each start goes to `OpeningMain.endMovie`, the movie's own end:
   it marks the movie seen and goes to the title screen before the movie starts. Later Opening
   scenes in the same session play as before.
+
+Every song in Music Stages (the cheat `unlock_songs=1` below `[cheats]` in `settings.ini`, set on
+Options > Cheats; `src/runtime_unlock_songs.c`). The save has a record per song (`Game.Backup.MusicInfo/MusicRecord`)
+whose `Unlocked` flag (+0x10) the Series Quests, the Rhythmia rewards and the DLC packs set. Every
+access to it is inlined, so there is no getter to hook. The song lists make an item for every song
+of the game and leave the locked ones out in two places each: when the list is built
+(`MusicSelectMusicListPartsMain`'s `InitializeSetting` state machine) and each time it is filtered
+(`filterItem`), and the same pair in the Museum's `MusicPlayerMusicListPartsMain`. Each test is a
+4-byte `cmp byte [record+0x10],0` followed by a branch, replaced in place by `test rsp,rsp; nop`
+(not zero: the unlocked path). For a DLC song both paths lead to the same check of its pack, so a
+song whose DLC is not installed stays as it was. The records are never changed, so the save keeps
+the player's own unlocks, and everything else that reads the flag (the result screen's
+recommendations, achievements, the profile card, the playable list of a Multi Battle) still sees
+them. One write goes too: `MSSaveMusicSelect::Save` sets `Unlocked` on a song cleared in Music
+Stages, which without the patch only happens to songs that already are unlocked. The mode's own
+lock (`MainMenuInfo.MusicSelectUnlockState`) is not touched: its states are written back to the save.
+Finding such sites: the dictionary of records is reached through three method slots
+(`Dictionary<MusicID, MusicRecord>`'s `FindEntry`, `get_Item` and its enumerator), so the functions
+with a rip-relative reference to one of those slots and a byte access at `+0x10` are the readers
+and writers of the flag; the list items keep the record's pointer (`BackupMusicRecord`), read as
+`mov reg,[item+0x48]` (Music Select) or `+0x38` (Music Player) just before.
 
 F4 asks "Exit the game?" in the game's own Yes/No window (`src/runtime_exit_prompt.c`), so it has
 the game's look and sounds. The overlay takes the key (Alt+F4 still closes at once); on the game
@@ -297,7 +337,7 @@ when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEAT
 | `packaging/windows/` | Manifest, resources and icon of the game exe; `diagnose/`, the debug package's glitch kit |
 | `assets/button_icons/` | Xbox and keyboard icon sheets (PNG, and the game's texture format from `tools/encode_button_icons.py`) |
 | `assets/controller_pad/` | Xbox pad for the Live Info controller (PNG of the two base sprites, and their atlas blocks from `tools/encode_controller_pad.py`) |
-| `assets/config_icon/` | Display Settings icon for the Options menu (PNG patch, and its atlas blocks from `tools/encode_config_icon.py`) |
+| `assets/config_icon/` | Display Settings and Cheats icons for the Options menu (PNG patches, and their atlas blocks from `tools/encode_config_icon.py`) |
 | `tools/` | `package.py` (the release), `name_imports.py` (names NIDs), `got_import.py` (names a GOT slot), `game_code.py` (the patched game code in each dump), Frida and IL2CPP tracing helpers |
 | `tests/` | Python tests (`cd tests; python -m unittest`) and C/C++ test targets (`gpu/CMakeLists.txt`) |
 | `docs/` | This guide and [building.md](building.md) |

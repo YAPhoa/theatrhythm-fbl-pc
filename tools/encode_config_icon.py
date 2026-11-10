@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Encode the Display Settings icon patch as Config atlas blocks.
+"""Encode an Options button's icon patch (Display Settings, Cheats) as Config atlas blocks.
 
     python tools/encode_config_icon.py assets/config_icon/display.png
+    python tools/encode_config_icon.py assets/config_icon/cheats.png
 
-Writes the .bc7 file next to the PNG: the 64x60 patch (atlas columns 208-271, rows 92-151, drawn by
-icon-commission/make_config_icon.py) as BC7 blocks the way the PS4 texture stores them, rows
-bottom-up, block rows one after another (scripts/config_icon.py PATCH; it tiles them into the
-atlas). Needs Pillow and etcpak (pip install pillow etcpak); the .bc7 file is checked in, so the
-game image does not.
+Writes the .bc7 file next to the PNG: the 64x60 patch (as the whole blocks around Logo Usage's icon,
+atlas columns 208-271, rows 92-151: the icon itself inside the 55x51 box at (5,4)) as BC7 blocks
+the way the PS4 texture stores them, rows bottom-up, block rows one after another
+(scripts/config_icon.py PATCHES; it tiles them into the atlas). Needs Pillow and etcpak
+(pip install pillow etcpak); the .bc7 files are checked in, so the game image does not.
 """
 import argparse
 from pathlib import Path

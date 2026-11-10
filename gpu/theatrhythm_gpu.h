@@ -94,9 +94,19 @@ const char *theatrhythm_button_icons(void);
 /* 1 when settings.ini render_resolution (THEATRHYTHM_RENDER_RESOLUTION) is 4k: the game runs in PS4
  * Pro mode with a 3840x2160 video out. Valid once theatrhythm_gpu_init returned. */
 int theatrhythm_render_4k(void);
-/* 1 when settings.ini skip_opening (THEATRHYTHM_SKIP_OPENING) is on: the start goes to the title
- * screen without the start-up logos and the opening movie. Valid once theatrhythm_gpu_init returned. */
+/* 1 when the cheat skip_opening (settings.ini [cheats], THEATRHYTHM_SKIP_OPENING) was on at start: the
+ * start goes to the title screen without the start-up logos and the opening movie. Valid once
+ * theatrhythm_gpu_init returned. */
 int theatrhythm_skip_opening(void);
+/* 1 when the cheat unlock_songs (settings.ini [cheats], THEATRHYTHM_UNLOCK_SONGS) was on at start: the
+ * song lists show every song, whatever the save has unlocked. Valid once theatrhythm_gpu_init returned. */
+int theatrhythm_unlock_songs(void);
+/* The Options menu's Cheats page (runtime_display_page.c): a cheat's value for the next start (0/1),
+ * which a restart puts in place; save writes settings.ini's [cheats] section. */
+enum { THEATRHYTHM_CHEAT_UNLOCK_SONGS, THEATRHYTHM_CHEAT_SKIP_OPENING };
+int theatrhythm_cheat_get(int cheat);
+void theatrhythm_cheat_set(int cheat, int value);
+void theatrhythm_cheats_save(void);
 /* sceCommonDialogInitialize ran (runtime_services.c): the upstream dialog libraries check it. */
 void theatrhythm_gpu_common_dialog_initialized(void);
 /* Master volume of the game's audio (settings.ini master_volume), 0 to 200 percent (100: the

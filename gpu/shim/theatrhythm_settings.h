@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // User settings, read once at start from settings.ini (THEATRHYTHM_CONFIG overrides the path) and then
-// from environment variables, which win. One "key=value" per line, '#' starts a comment.
+// from environment variables, which win. One "key=value" per line, '#' starts a comment. A "[cheats]"
+// line starts the cheats (unlock_songs, skip_opening), up to the next "[...]" line. A cheat's line
+// outside that section is still read (skip_opening was a plain key before), but the section's wins.
 #pragma once
 
 #include <atomic>
@@ -75,9 +77,17 @@ struct Values {
     std::string pad_map, key_map;
     /// Dialog confirmation button: 0 Cross confirms, Circle cancels; 1 the other way round.
     std::atomic<int> menu_confirm_swap{0};
-    /// Start at the title screen: the start-up logos and the opening movie are skipped (src/runtime_skip_opening.c);
-    /// read once, before the game starts.
+    /// Cheats (the [cheats] section, set on the game's Options > Cheats page). A cheat is put in place
+    /// before the game starts, from its startup value; the other value is what the page saves for
+    /// the next start.
+    /// skip_opening: start at the title screen, the start-up logos and the opening movie are skipped
+    /// (src/runtime_skip_opening.c).
     bool skip_opening = false;
+    std::atomic<bool> next_skip_opening{false};
+    /// unlock_songs: Music Stages and the Music Player list every song, whatever the save has
+    /// unlocked; the save's own unlocks are not changed (src/runtime_unlock_songs.c).
+    bool startup_unlock_songs = false;
+    std::atomic<bool> unlock_songs{false};
     /// Master volume of the game's audio in percent, 0 to 200: above 100 boosts the mix behind a
     /// soft limiter (src/runtime_audio.c).
     std::atomic<int> master_volume{MasterVolumeDefault};
@@ -98,9 +108,14 @@ Values& Get();
 void Load();
 
 /// Writes the display keys (display_mode, monitor, window, vsync, tearing, fps_limit, frames_queued,
-/// anisotropy, render_resolution) into Path() in place: their lines are replaced, missing ones
-/// appended, the rest kept (from the default file until Path() exists).
+/// anisotropy, render_resolution) and the cheats into Path() in place: their lines are replaced
+/// (a cheat's older line outside [cheats] too, so the file never says two things), missing display
+/// keys go before the first section, cheats missing from [cheats] into it (added at the end when
+/// the file has none), the rest is kept (from the default file until Path() exists).
 void SaveDisplay();
+
+/// The same write, for the Options > Cheats page.
+void SaveCheats();
 
 /// SaveDisplay() when a display key differs from what Path() holds: called as the game closes, so
 /// a change made on a page that was still open is not lost.

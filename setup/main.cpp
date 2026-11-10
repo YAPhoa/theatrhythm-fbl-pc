@@ -3,14 +3,13 @@
 // Theatrhythm Final Bar Line dump, so the game starts from theatrhythm-fbl.exe or a desktop shortcut.
 //
 // With no arguments it opens a window: the game folder (the dump), the save folder, an optional extra
-// DLC folder, whether to skip the logos and the opening movie (settings.ini skip_opening), Install and Exit; after an
+// DLC folder, Install and Exit; after an
 // install it offers a desktop shortcut. Run it again to change a folder, or after unpacking a newer
 // release over the folder.
 // With arguments it installs from the command line:
 //
 //     theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
-//                           [--dlc <folder>|--no-dlc] [--skip-opening|--play-opening]
-//                           [--shortcut <folder>|desktop]
+//                           [--dlc <folder>|--no-dlc] [--shortcut <folder>|desktop]
 
 #include "setup.h"
 
@@ -78,17 +77,12 @@ private:
 
 constexpr wchar_t kUsage[] =
     L"usage: theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]\n"
-    L"                             [--dlc <folder>|--no-dlc] [--skip-opening|--play-opening]\n"
-    L"                             [--shortcut <folder>|desktop]\n"
+    L"                             [--dlc <folder>|--no-dlc] [--shortcut <folder>|desktop]\n"
     L"  --game        the decrypted game dump (eboot.bin, sce_module, sce_sys, Media); only ever read\n"
     L"  --save        where your saves go (default: the one paths.ini names, else save\\ here)\n"
     L"  --copy-saves  when --save changes, copy the saves from the old save folder\n"
     L"  --dlc         one more folder of DLC to read, e.g. shadPS4's addcont (default: the one\n"
     L"                paths.ini names); --no-dlc reads only the save folder's addcont\n"
-    L"  --skip-opening, --play-opening\n"
-    L"                start at the title screen without the start-up logos and the opening\n"
-    L"                movie, or play them again\n"
-    L"                (settings.ini skip_opening; default: leave it as it is)\n"
     L"  --shortcut    also write the game's shortcut into this folder, or onto the Desktop\n"
     L"Sets up the folder this exe is in. With no arguments, opens the setup window.";
 
@@ -96,7 +90,6 @@ int run_cli(const std::vector<std::wstring>& args) {
     Console con;
     std::wstring game, save, shortcut, dlc;
     bool copy_saves = false, no_dlc = false;
-    std::optional<bool> skip_opening;
     for (size_t i = 0; i < args.size(); ++i) {
         const std::wstring& a = args[i];
         std::wstring* value = a == L"--game"       ? &game
@@ -108,8 +101,6 @@ int run_cli(const std::vector<std::wstring>& args) {
             *value = args[++i];
         } else if (a == L"--copy-saves") {
             copy_saves = true;
-        } else if (a == L"--skip-opening" || a == L"--play-opening") {
-            skip_opening = a == L"--skip-opening";
         } else if (a == L"--no-dlc") {
             no_dlc = true;
         } else {
@@ -130,7 +121,6 @@ int run_cli(const std::vector<std::wstring>& args) {
         opt.dlc = no_dlc ? fs::path() : !dlc.empty() ? fs::path(dlc) : old ? old->dlc : fs::path();
         if (copy_saves)
             opt.copy_saves_from = saves_to_move(opt.root, opt.save);
-        opt.skip_opening = skip_opening;
         fs::path exe = setup::install(opt, [&](const std::wstring& line) { con.out(line); });
         if (!shortcut.empty()) {
             fs::path lnk = (shortcut == L"desktop" ? setup::desktop_folder() : fs::path(shortcut)) / setup::kShortcutName;
@@ -156,7 +146,6 @@ enum : int {
     kDlcBrowse,
     kLog,
     kPlay,
-    kSkipOpening,
 };
 enum : UINT {
     kMsgLog = WM_APP + 1, // lParam: std::wstring* line
@@ -165,7 +154,7 @@ enum : UINT {
 
 struct Ui {
     HWND wnd = nullptr;
-    HWND game = nullptr, save = nullptr, dlc = nullptr, skip_opening = nullptr, log = nullptr, play = nullptr;
+    HWND game = nullptr, save = nullptr, dlc = nullptr, log = nullptr, play = nullptr;
     std::vector<HWND> inputs; // disabled while installing (Play Game too, and until the folder is set up)
     HFONT font = nullptr;
     UINT dpi = 96;
@@ -259,7 +248,6 @@ void start_install() {
     opt.game = game;
     opt.save = save;
     opt.dlc = dlc;
-    opt.skip_opening = SendMessageW(ui.skip_opening, BM_GETCHECK, 0, 0) == BST_CHECKED;
     try {
         if (auto old = saves_to_move(opt.root, opt.save)) {
             std::wstring ask = L"Copy your saves to the new save folder?\n\nFrom: " + old->wstring() + L"\nTo: " + save;
@@ -317,7 +305,7 @@ HWND add(const wchar_t* cls, const wchar_t* text, DWORD style, int x, int y, int
 }
 
 // Layout in 96-dpi units; the client area is kWidth x kHeight.
-constexpr int kWidth = 600, kHeight = 414, kMargin = 12, kButton = 90;
+constexpr int kWidth = 600, kHeight = 384, kMargin = 12, kButton = 90;
 
 void create_controls() {
     const int edit_w = kWidth - 2 * kMargin - kButton - 6, right = kWidth - kMargin - kButton;
@@ -330,14 +318,12 @@ void create_controls() {
     add(WC_STATICW, L"Extra DLC folder (optional, e.g. shadPS4's addcont; empty for none):", 0, kMargin, 124, edit_w, 18, 0);
     ui.dlc = add(WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, kMargin, 144, edit_w, 24, kDlcEdit, WS_EX_CLIENTEDGE);
     HWND dlc_browse = add(WC_BUTTONW, L"Browse...", WS_TABSTOP, right, 143, kButton, 26, kDlcBrowse);
-    ui.skip_opening = add(WC_BUTTONW, L"Skip the opening movie (set skip_opening=0 in settings.ini to bring it back)",
-                          WS_TABSTOP | BS_AUTOCHECKBOX, kMargin, 180, kWidth - 2 * kMargin, 22, kSkipOpening);
-    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 210,
+    ui.log = add(WC_EDITW, L"", ES_MULTILINE | ES_READONLY | ES_AUTOVSCROLL | WS_VSCROLL, kMargin, 180,
                  kWidth - 2 * kMargin, 150, kLog, WS_EX_CLIENTEDGE);
-    ui.play = add(WC_BUTTONW, L"Play Game", WS_TABSTOP, right - 2 * (kButton + 6), 374, kButton, 28, kPlay);
-    HWND install = add(WC_BUTTONW, L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, right - kButton - 6, 374, kButton, 28, IDOK);
-    HWND exit = add(WC_BUTTONW, L"Exit", WS_TABSTOP, right, 374, kButton, 28, IDCANCEL);
-    ui.inputs = {ui.game, game_browse, ui.save, save_browse, ui.dlc, dlc_browse, ui.skip_opening, install, exit};
+    ui.play = add(WC_BUTTONW, L"Play Game", WS_TABSTOP, right - 2 * (kButton + 6), 344, kButton, 28, kPlay);
+    HWND install = add(WC_BUTTONW, L"Install", WS_TABSTOP | BS_DEFPUSHBUTTON, right - kButton - 6, 344, kButton, 28, IDOK);
+    HWND exit = add(WC_BUTTONW, L"Exit", WS_TABSTOP, right, 344, kButton, 28, IDCANCEL);
+    ui.inputs = {ui.game, game_browse, ui.save, save_browse, ui.dlc, dlc_browse, install, exit};
     set_busy(false);
 
     // Start from what the last install chose (paths.ini here, else the per-user copy), else an empty
@@ -353,8 +339,6 @@ void create_controls() {
     SetWindowTextW(ui.save, save.c_str());
     if (paths)
         SetWindowTextW(ui.dlc, paths->dlc.c_str());
-    // What settings.ini says now; Install writes the box's state, so unticking it brings the movie back.
-    SendMessageW(ui.skip_opening, BM_SETCHECK, setup::skip_opening(ui.root, save) ? BST_CHECKED : BST_UNCHECKED, 0);
     append_log(setup::ready(ui.root) ? L"The game is set up. Press Play Game, or pick new folders and press Install."
                : paths              ? L"This version isn't set up yet. Press Install."
                                     : L"Pick the folders, then press Install.");

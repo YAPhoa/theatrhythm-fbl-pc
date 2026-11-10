@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "theatrhythm_settings.h"
 #include "theatrhythm_graphics.h"
+#include "../theatrhythm_gpu.h"
 
 #include <algorithm>
 #include <cctype>
@@ -70,6 +71,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.menu_confirm_swap = Truthy(value) || value == "circle" ? 1 : 0;
     } else if (key == "skip_opening") {
         v.skip_opening = Truthy(value);
+        v.next_skip_opening = v.skip_opening;
+    } else if (key == "unlock_songs") {
+        v.startup_unlock_songs = Truthy(value);
+        v.unlock_songs = v.startup_unlock_songs;
     } else if (key == "master_volume") {
         v.master_volume = value.empty() ? MasterVolumeDefault : std::clamp(i, MasterVolumeMin, MasterVolumeMax);
     } else if (key == "audio_channels") {
@@ -108,6 +113,19 @@ std::vector<std::pair<std::string, std::string>> DisplayKeys() {
     };
 }
 
+// The cheats as the [cheats] section holds them.
+std::vector<std::pair<std::string, std::string>> CheatKeys() {
+    return {{"unlock_songs", Get().unlock_songs ? "1" : "0"}, {"skip_opening", Get().next_skip_opening ? "1" : "0"}};
+}
+
+// The name of a "[name]" line; nullptr for any other line.
+const char* SectionLine(const std::string& line, std::string& name) {
+    const auto end = line.find(']');
+    if (line.empty() || line[0] != '[' || end == std::string::npos) return nullptr;
+    name = line.substr(1, end - 1);
+    return name.c_str();
+}
+
 std::mutex save_mutex;
 // The display keys as Path() holds them: loaded at start, updated by each save.
 std::vector<std::pair<std::string, std::string>> saved_keys;
@@ -118,9 +136,13 @@ bool Exists(const char* path) {
     return file != nullptr;
 }
 
-// save_mutex held. Writes the display keys into Path() in place, from ReadPath()'s lines.
+// save_mutex held. Writes the display keys and the cheats into Path() in place, from ReadPath()'s
+// lines. A key's line is replaced wherever it is; a cheat that [cheats] does not hold is added there
+// (its line outside the section, from an older file, stays and says the same).
 void WriteDisplay() {
     auto keys = DisplayKeys();
+    const auto cheats = CheatKeys();
+    std::vector<bool> in_section(cheats.size());
     saved_keys = keys;
     std::vector<std::string> lines;
     if (FILE* file = std::fopen(ReadPath(), "r")) {
@@ -132,15 +154,41 @@ void WriteDisplay() {
         }
         std::fclose(file);
     }
-    for (std::string& line : lines) {
+    const size_t none = std::string::npos;
+    size_t first_section = none, cheats_end = none; // where missing display keys and cheats go
+    bool in_cheats = false;
+    std::string section;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::string& line = lines[i];
+        if (SectionLine(line, section)) {
+            if (first_section == none) first_section = i;
+            in_cheats = section == "cheats";
+            if (in_cheats) cheats_end = i + 1;
+            continue;
+        }
         const auto eq = line.find('=');
         if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
-        const auto key = std::find_if(keys.begin(), keys.end(), [&](const auto& k) { return line.substr(0, eq) == k.first; });
-        if (key == keys.end()) continue;
-        line = key->first + "=" + key->second;
-        keys.erase(key);
+        if (in_cheats) cheats_end = i + 1;
+        const auto named = [&](const auto& k) { return line.substr(0, eq) == k.first; };
+        if (const auto cheat = std::find_if(cheats.begin(), cheats.end(), named); cheat != cheats.end()) {
+            line = cheat->first + "=" + cheat->second;
+            if (in_cheats) in_section[cheat - cheats.begin()] = true;
+        } else if (const auto key = std::find_if(keys.begin(), keys.end(), named); key != keys.end()) {
+            line = key->first + "=" + key->second;
+            keys.erase(key);
+        }
     }
-    for (const auto& [key, value] : keys) lines.push_back(key + "=" + value);
+    size_t display_at = first_section == none ? lines.size() : first_section;
+    if (cheats_end == none) {
+        if (!lines.empty() && !lines.back().empty()) lines.emplace_back();
+        lines.emplace_back("# Cheats, set on the game's Options > Cheats page. They apply at the next start.");
+        lines.emplace_back("[cheats]");
+        cheats_end = lines.size();
+    }
+    for (size_t i = 0; i < cheats.size(); ++i) {
+        if (!in_section[i]) lines.insert(lines.begin() + cheats_end++, cheats[i].first + "=" + cheats[i].second);
+    }
+    for (const auto& [key, value] : keys) lines.insert(lines.begin() + display_at++, key + "=" + value);
     FILE* file = std::fopen(Path(), "wb");
     if (!file) {
         std::printf("Settings: cannot write %s\n", Path());
@@ -148,7 +196,7 @@ void WriteDisplay() {
     }
     for (const std::string& line : lines) std::fprintf(file, "%s\n", line.c_str());
     std::fclose(file);
-    std::printf("Settings: saved display settings to %s\n", Path());
+    std::printf("Settings: saved to %s\n", Path());
 }
 
 // Gives the save folder its own settings.ini at start: the default file copied as it is (the
@@ -193,14 +241,26 @@ void Load() {
     const char* path = ReadPath();
     if (FILE* file = std::fopen(path, "r")) {
         char line[1024];
+        std::string section;
+        std::vector<std::string> from_cheats; // the keys [cheats] set
         while (std::fgets(line, sizeof(line), file)) {
             std::string text{line};
             text.erase(text.find_last_not_of(" \t\r\n") + 1);
             const auto eq = text.find('=');
-            if (text.empty() || text[0] == '#' || eq == std::string::npos) {
+            if (SectionLine(text, section) || text.empty() || text[0] == '#' || eq == std::string::npos) {
                 continue;
             }
-            Set(v, text.substr(0, eq), text.substr(eq + 1));
+            // Every key is read wherever it is (a writer that appends to the file puts it after the
+            // last section), but what [cheats] sets is not changed by a line outside it: a cheat's
+            // line from before the section (skip_opening) still counts in a file without the new one.
+            const std::string key = text.substr(0, eq);
+            const bool set_by_cheats = std::find(from_cheats.begin(), from_cheats.end(), key) != from_cheats.end();
+            if (section == "cheats") {
+                if (!set_by_cheats) from_cheats.push_back(key);
+            } else if (set_by_cheats) {
+                continue;
+            }
+            Set(v, key, text.substr(eq + 1));
         }
         std::fclose(file);
         std::printf("Settings: %s\n", path);
@@ -215,6 +275,7 @@ void Load() {
         {"THEATRHYTHM_ANISOTROPY", "anisotropy"},     {"THEATRHYTHM_VIBRATION", "vibration"},
         {"THEATRHYTHM_AUDIO_VOLUME", "master_volume"}, {"THEATRHYTHM_AUDIO_CHANNELS", "audio_channels"},
         {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"}, {"THEATRHYTHM_SKIP_OPENING", "skip_opening"},
+        {"THEATRHYTHM_UNLOCK_SONGS", "unlock_songs"},
         {"THEATRHYTHM_PAD_MAP", "pad_map"},       {"THEATRHYTHM_KEY_MAP", "key_map"},
         {"THEATRHYTHM_BUTTON_ICONS", "button_icons"}, {"THEATRHYTHM_RENDER_RESOLUTION", "render_resolution"},
     };
@@ -239,6 +300,11 @@ void SaveDisplayIfChanged() {
     if (DisplayKeys() != saved_keys) WriteDisplay();
 }
 
+void SaveCheats() {
+    std::scoped_lock lock{save_mutex};
+    WriteDisplay();
+}
+
 } // namespace TheatrhythmSettings
 
 extern "C" int theatrhythm_gpu_menu_confirm_swap(void) {
@@ -251,6 +317,29 @@ extern "C" const char* theatrhythm_button_icons(void) {
 
 extern "C" int theatrhythm_skip_opening(void) {
     return TheatrhythmSettings::Get().skip_opening ? 1 : 0;
+}
+
+extern "C" int theatrhythm_unlock_songs(void) {
+    return TheatrhythmSettings::Get().startup_unlock_songs ? 1 : 0;
+}
+
+extern "C" int theatrhythm_cheat_get(int cheat) {
+    const auto& v = TheatrhythmSettings::Get();
+    return (cheat == THEATRHYTHM_CHEAT_UNLOCK_SONGS && v.unlock_songs) ||
+           (cheat == THEATRHYTHM_CHEAT_SKIP_OPENING && v.next_skip_opening) ? 1 : 0;
+}
+
+extern "C" void theatrhythm_cheat_set(int cheat, int value) {
+    auto& v = TheatrhythmSettings::Get();
+    if (cheat == THEATRHYTHM_CHEAT_UNLOCK_SONGS) {
+        v.unlock_songs = value != 0;
+    } else if (cheat == THEATRHYTHM_CHEAT_SKIP_OPENING) {
+        v.next_skip_opening = value != 0;
+    }
+}
+
+extern "C" void theatrhythm_cheats_save(void) {
+    TheatrhythmSettings::SaveCheats();
 }
 
 extern "C" int theatrhythm_render_4k(void) {

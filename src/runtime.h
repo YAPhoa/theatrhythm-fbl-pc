@@ -79,10 +79,10 @@ void runtime_game_code_open(unsigned char *module, uint64_t size, uint64_t code_
 void runtime_game_code_close(void);
 /* Every site of `sites` into `found`: 0, or -1 after logging "<who>: <site> not found in game ...". */
 int runtime_game_code_find(const GameSite *sites, size_t count, GameCode *found, const char *who);
-/* Display Settings in the game's Options menu, and all nine display languages on its Language page
+/* Display Settings and Cheats in the game's Options menu, and all nine display languages on its Language page
  * (runtime_display_page.c): hooks the game's code in the
  * image (still writable), with stubs written to `stubs` (`size` bytes, within rel32 reach of it);
- * `monitor_icon`: the Config atlas bundle with the button's icon is mounted. 0 when installed. */
+ * `monitor_icon`: the Config atlas bundle with the buttons' icons is mounted. 0 when installed. */
 int runtime_display_page_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size, int monitor_icon);
 /* The party's walk on field stages at any frame rate (runtime_field_walk.c): StageCharacter's
  * motion check measures movement in 60ths of a second, with its stub written to `stubs` (`size`
@@ -101,6 +101,10 @@ int runtime_xbox_pad_install(unsigned char *image, uint64_t module_base, unsigne
  * goes to the title screen; stubs written to `stubs` (`size`
  * bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
 int runtime_skip_opening_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The cheat unlock_songs, settings.ini [cheats] (runtime_unlock_songs.c): Music Stages and the Museum's Music Player list
+ * every song of the game, with the save's own unlocks left as they are; patches the game's code in
+ * the image (still writable) in place. 0 when installed. */
+int runtime_unlock_songs_install(unsigned char *image, uint64_t module_base);
 /* F4 opens the game's own Yes/No window asking "Exit the game?", and Yes ends the game
  * (runtime_exit_prompt.c). Its text comes through the Display page's translation hook, so it
  * installs only with `display_page` (that install returned 0). 0 when installed. */

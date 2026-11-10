@@ -1,6 +1,7 @@
-/* Display Settings in the game's own Options menu: a copy of the
- * Logo Usage button below Streaming Rules opens the game's MS Settings page, and while that page is
- * shown this way its rows show and change the runner's display settings instead of the game's. The
+/* Display Settings and Cheats in the game's own Options menu: two copies of the Logo Usage button,
+ * below Streaming Rules and Legal Info, open the game's MS Settings page, and while that page is
+ * shown this way its rows show and change the runner's display settings, or its cheats
+ * (settings.ini [cheats], put in place at the next start), instead of the game's. The
  * Language page's Display language row also steps through all nine languages the game has.
  *
  * Game functions (Il2CppUserAssemblies) are hooked at their entry: the first instructions move to a
@@ -25,7 +26,9 @@ typedef struct {
 } Hook;
 
 static unsigned char *module;    /* Il2CppUserAssemblies in the image */
-static volatile int display_mode; /* the MS Settings page shows the display settings */
+/* What the MS Settings page shows: the game's own rows, the display settings or the cheats. */
+enum { PAGE_GAME, PAGE_DISPLAY, PAGE_CHEATS };
+static volatile int page_mode;
 
 static uint64_t load(const void *p) { uint64_t v; memcpy(&v,p,8); return v; }
 static int32_t load32(const void *p) { int32_t v; memcpy(&v,p,4); return v; }
@@ -200,23 +203,38 @@ static const struct { const char *detail, *help; } rows[ROWS]={
     /* Timing display's row, an On/Off selector like VSync's */
     {"Common/DetailText/Config0026","4K as on PS4 Pro, filtered down to the window: sharper. 1080p as on PS4: lighter on the GPU. Applies after a restart."},
 };
+/* The Cheats page's rows, the two On/Off selectors: the row it shows as, the row's label term, and
+ * the label, help text and setting it stands for there. */
+typedef struct { int row; const char *term, *label, *help; int cheat; } CheatRow;
+static const CheatRow cheat_rows[]={
+    {ROW_VSYNC,"Scene/Config/MsSettings/010","Unlock all music",
+     "Unlock all music in Music Stages and the Music Player. Save data is not affected.",THEATRHYTHM_CHEAT_UNLOCK_SONGS},
+    {ROW_RENDER,"Scene/Config/MsSettings/011","Skip opening movie",
+     "Start at the title screen, without the start-up logos and the opening movie.",THEATRHYTHM_CHEAT_SKIP_OPENING},
+};
+#define CHEAT_ROWS ((int)(sizeof(cheat_rows)/sizeof(*cheat_rows)))
+/* The Cheats page's entry for row `row`, or NULL. */
+static const CheatRow *cheat_row(int row) {
+    for (int i=0;i<CHEAT_ROWS;++i) if (cheat_rows[i].row==row) return &cheat_rows[i];
+    return NULL;
+}
 static const char *const mode_names[]={"Windowed","Borderless windowed","Fullscreen"};
 static const int fps_stops[]={0,30,60,120,144,240}; /* the slider's six stops */
 static const char *const fps_ticks[]={"Off","30","60","120","144","240"};
 
 static unsigned char *page;            /* ConfigMusicStageEditPartsMain of the loaded Config scene */
 static unsigned char *row_item[ROWS];  /* its ConfigListItemBase rows */
-static int page_display;               /* the rows the page lists: 1 display settings */
+static int page_listed;                /* the rows the page lists (PAGE_) */
 static int resorting;                  /* OnInitializeSetting called from here */
 static int forcing;                    /* retranslate(): the rows' texts translate again */
 static void *label_text;               /* LocalizedText being translated (SetTextByTermInfo) */
-static int display_dirty;              /* settings.ini needs saving */
+static int display_dirty, cheats_dirty; /* settings.ini needs saving */
 static struct { unsigned char *view; float x; int moved; } marked[2]; /* row views without their marks: label x, label moved */
 
 /* A new Config scene: forget the rows of the last one. */
 static void note_page(unsigned char *self) {
     if (self==page) return;
-    page=self; page_display=0;
+    page=self; page_listed=PAGE_GAME;
     memset(row_item,0,sizeof(row_item));
     memset(marked,0,sizeof(marked));
 }
@@ -300,12 +318,14 @@ static int row_of_behaviour(const void *behaviour) {
 }
 
 /* The value a row shows: VSync, the frame rate limit and the render resolution (1080p left, 4K
- * right) as the selected index; the pills (Window mode, Resolution) draw theirs in button_value. */
+ * right) as the selected index; the pills (Window mode, Resolution) draw theirs in button_value.
+ * On the Cheats page: its row's cheat (On left). */
 static void show_row(int row) {
     unsigned char *item=row_item[row];
-    if (!item) return;
+    if (!item || (page_mode==PAGE_CHEATS && !cheat_row(row))) return;
     unsigned char *parameter=(unsigned char *)load(item+0x38); /* ConfigListItemView.ViewParameter */
-    if (row==ROW_VSYNC) put32(parameter+0x14,theatrhythm_display_get(THEATRHYTHM_DISPLAY_VSYNC) ? 0 : 1);
+    if (page_mode==PAGE_CHEATS) put32(parameter+0x14,theatrhythm_cheat_get(cheat_row(row)->cheat) ? 0 : 1);
+    else if (row==ROW_VSYNC) put32(parameter+0x14,theatrhythm_display_get(THEATRHYTHM_DISPLAY_VSYNC) ? 0 : 1);
     else if (row==ROW_RENDER) put32(parameter+0x14,theatrhythm_display_get(THEATRHYTHM_DISPLAY_RENDER_4K) ? 1 : 0);
     else if (row==ROW_FPS) {
         const int fps=theatrhythm_display_get(THEATRHYTHM_DISPLAY_FPS_LIMIT);
@@ -316,18 +336,28 @@ static void show_row(int row) {
     refresh_view(item);
 }
 
-/* The Display Settings button: a copy of Logo Usage, put in the menu's empty slot below Streaming
- * Rules. It keeps Logo Usage's number (UIObject._value), so the menu runs it as that button (its
- * description, its page); the hooks tell it apart by its object. */
+/* The Display Settings and Cheats buttons: copies of Logo Usage, put in the menu's empty slots below
+ * Streaming Rules and Legal Info. They keep Logo Usage's number (UIObject._value), so the menu runs
+ * them as that button (its description, its page); the hooks tell them apart by their objects. A
+ * button's page is its index + 1 (PAGE_DISPLAY, PAGE_CHEATS). */
 #define LOGO_BUTTON 7
 #define STREAMING_BUTTON 5
-static const char button_name[]="TheatrhythmDisplaySettings";
-static unsigned char *button;          /* its UIObject in the loaded Config scene */
-static unsigned char *button_root;     /* its RectTransform (the copied button) */
-static unsigned char *logo_button;     /* Logo Usage's UIObject, which it stands in for */
-static int button_pressed;             /* the logo layer opens for it, in display mode */
-static int describing;                 /* the menu's description is the button's */
-static int monitor_icon;               /* the Config atlas holds the monitor icon (install) */
+enum { BUTTON_DISPLAY, BUTTON_CHEATS, BUTTONS };
+static const struct { const char *name, *label, *description; } buttons[BUTTONS]={
+    {"TheatrhythmDisplaySettings","Display Settings","Change the window mode, resolution, VSync, frame rate limit and render resolution"},
+    {"TheatrhythmCheats","Cheats","Turn cheats on or off. Applies after restart."},
+};
+static unsigned char *button[BUTTONS];      /* their UIObjects in the loaded Config scene */
+static unsigned char *button_root[BUTTONS]; /* their RectTransforms (the copied buttons) */
+static unsigned char *logo_button;     /* Logo Usage's UIObject, which they stand in for */
+static int button_pressed;             /* the logo layer opens for a button, as its page (PAGE_) */
+static int describing;                 /* the menu's description is a button's (PAGE_) */
+static int monitor_icon;               /* the Config atlas holds the buttons' icons (install) */
+/* The page of the button that is UIObject `object`, or 0. */
+static int button_page(uint64_t object) {
+    for (int i=0;i<BUTTONS;++i) if (button[i] && object==(uint64_t)(uintptr_t)button[i]) return i+1;
+    return 0;
+}
 
 typedef struct { float x, y; } Vec2;
 typedef struct { float x, y, z; } Vec3;
@@ -349,7 +379,9 @@ static unsigned char *top_button(const unsigned char *parts, int value) {
     return NULL;
 }
 /* The menu's cursor moves: each button lists its neighbour per CursorDirection
- * (UIFocusableFixedMoveButton._movingUIObjects, UIObject[4]). */
+ * (UIFocusableFixedMoveButton._movingUIObjects, UIObject[4]) where the cursor does not simply go to
+ * the next button that way: at the grid's edges (a column or the reading order wrapping around) and
+ * for the copies. */
 enum { UP, DOWN, LEFT, RIGHT };
 static unsigned char *moves(const unsigned char *button) {
     unsigned char *array=(unsigned char *)load(button+0x80);
@@ -376,6 +408,27 @@ static int link_button(const unsigned char *parts, unsigned char *copy) {
     if (move(first,LEFT)==logo) set_move(first,LEFT,copy); /* the reading order's wrap */
     return 1;
 }
+/* The buttons of the grid's last column, by the moves the game gives them: Legal Info (`bottom`),
+ * which the reading order leaves for Logo Usage, and at the column's top Live Info, where Down from
+ * Legal Info wraps to. Both NULL when the moves are not those. */
+static void last_column(const unsigned char *parts, unsigned char **top, unsigned char **bottom) {
+    unsigned char *logo=top_button(parts,LOGO_BUTTON), *streaming=top_button(parts,STREAMING_BUTTON), *ms=top_button(parts,2);
+    *bottom=logo ? move(logo,LEFT) : NULL;
+    *top=*bottom ? move(*bottom,DOWN) : NULL;
+    if (!*top || !*bottom || *top==*bottom || move(*top,UP)!=*bottom || move(*bottom,RIGHT)!=logo
+        || *bottom==streaming || *bottom==ms || *top==streaming || *top==ms || *top==logo) *top=*bottom=NULL;
+}
+/* Link the Cheats button (`copy`) in after the Display Settings button (`display`, linked): the slot
+ * right of it and below Legal Info, now the end of the reading order. */
+static int link_cheats(const unsigned char *parts, unsigned char *copy, unsigned char *display, unsigned char *top, unsigned char *bottom) {
+    unsigned char *first=top_button(parts,1);
+    if (!moves(copy) || !moves(display) || moves(copy)==moves(display) || !top || !bottom || !first) return 0;
+    set_move(copy,UP,bottom); set_move(copy,DOWN,top); set_move(copy,LEFT,display); set_move(copy,RIGHT,move(display,RIGHT));
+    set_move(display,RIGHT,copy); set_move(bottom,DOWN,copy);
+    if (move(top,UP)==bottom) set_move(top,UP,copy); /* the column's wrap */
+    if (move(first,LEFT)==display) set_move(first,LEFT,copy); /* the reading order's wrap */
+    return 1;
+}
 /* The child of `container` that holds transform `t`. */
 static unsigned char *child_holding(unsigned char *t, const unsigned char *container) {
     for (unsigned char *up;t;t=up) {
@@ -394,16 +447,15 @@ static unsigned char *image_showing(unsigned char *t, const char *sprite, int de
         if ((image=image_showing(child(t,i),sprite,depth-1))) return image;
     return NULL;
 }
-/* scripts/config_icon.py draws the monitor in an unused area of the Config atlas (PATCH, in blocks
- * counted from the bottom row) instead of over Logo Usage's icon (ICON_FROM), so the copy's icon is
- * Logo Usage's sprite moved by that many texels. */
-#define ICON_MOVE_X ((208-52)*4)
-#define ICON_MOVE_Y ((192-218)*4)
-/* The copied button below `root` shows the monitor: a sprite like Logo Usage's (size, pivot, pixels
- * per unit) over the same atlas texture at the monitor's place, Sprite.CreateSprite(texture, rect,
+/* scripts/config_icon.py draws the buttons' icons (the monitor, the Cheats icon) in unused areas of
+ * the Config atlas (PATCHES, in blocks counted from the bottom row) instead of over Logo Usage's icon
+ * (ICON_FROM), so a copy's icon is Logo Usage's sprite moved by that many texels. */
+static const struct { float x, y; } icon_move[BUTTONS]={{(208-52)*4,(192-218)*4},{(208-52)*4,(218-218)*4}};
+/* The copied button below `root` shows its icon: a sprite like Logo Usage's (size, pivot, pixels
+ * per unit) over the same atlas texture at the icon's place, Sprite.CreateSprite(texture, rect,
  * pivot, pixelsPerUnit, extrude 0, FullRect, no border, no physics shape). The copy's Image holds
  * the only reference, so the sprite goes with the scene. */
-static void show_monitor(unsigned char *root) {
+static void show_icon(unsigned char *root, int which) {
     unsigned char *image=image_showing(root,"ConfigTop_Button_Icon_07",6);
     void *sprite=image ? (void *)load(image+0xd0) : NULL;
     if (!sprite) { printf("Display page: no Logo Usage icon in the copy; it keeps that icon\n"); return; }
@@ -416,20 +468,58 @@ static void show_monitor(unsigned char *root) {
     const Vec2 offset=((Vec2 (ABI *)(void *, void *))CODE(C_SPRITE_RECT_OFFSET))(sprite,NULL), pivot=((Vec2 (ABI *)(void *, void *))CODE(C_SPRITE_PIVOT))(sprite,NULL);
     const float units=((float (ABI *)(void *, void *))CODE(C_SPRITE_PIXELS_PER_UNIT))(sprite,NULL);
     if (whole.width<=0 || whole.height<=0) return;
-    const Rect rect={drawn.x+ICON_MOVE_X-offset.x,drawn.y+ICON_MOVE_Y-offset.y,whole.width,whole.height};
+    const Rect rect={drawn.x+icon_move[which].x-offset.x,drawn.y+icon_move[which].y-offset.y,whole.width,whole.height};
     const Vec2 center={pivot.x/whole.width,pivot.y/whole.height};
     const Vec4 border={0,0,0,0};
     void *monitor=((void *(ABI *)(void *, Rect, Vec2, float, uint32_t, int32_t, Vec4, int, void *))CODE(C_CREATE_SPRITE))
         (texture,rect,center,units,0,0,border,0,NULL);
-    if (!monitor) { printf("Display page: cannot make the monitor icon; the copy keeps Logo Usage's\n"); return; }
+    if (!monitor) { printf("Display page: cannot make a button's icon; the copy keeps Logo Usage's\n"); return; }
     ((void (ABI *)(void *, void *, void *))CODE(C_SET_SPRITE))(image,monitor,NULL); /* Image::set_sprite */
 }
 
+/* One copy of Logo Usage's button (`root`, made in top_switch_in) becomes button `which`: named, shown,
+ * placed in the row of `logo_root` and the column of `column_root` and given its icon. Its UIObject
+ * (for add_button), or NULL. */
+static unsigned char *set_up_button(int which, unsigned char *root, unsigned char *logo, unsigned char *logo_root, unsigned char *column_root) {
+    void *name=guest_text(object_name(logo_root),buttons[which].name);
+    if (name) ((void (ABI *)(void *, void *, void *))CODE(C_SET_NAME))(root,name,NULL); /* Object::set_name */
+    /* The button fades in through a CanvasGroup on its root, copied at alpha 0: the original's now
+     * fades the copy too. */
+    void *group=component_named(root,"CanvasGroup");
+    if (group) ((void (ABI *)(void *, float, void *))CODE(C_SET_ALPHA))(group,1.0f,NULL); /* CanvasGroup::set_alpha */
+    void *type=((void *(ABI *)(void *, void *))CODE(C_GET_TYPE))(logo,NULL); /* Object::GetType */
+    unsigned char *copy=((unsigned char *(ABI *)(void *, void *, int, void *))CODE(C_COMPONENT_IN_CHILDREN))(root,type,1,NULL); /* GetComponentInChildren */
+    if (!copy) return NULL;
+    /* The buttons slide in from the left inside their roots, which stay put, and the copy keeps the
+     * slide's first frame: its button goes where the others come to rest, on their roots (world
+     * positions). */
+    Vec3 (ABI *get_position)(void *, void *)=(Vec3 (ABI *)(void *, void *))CODE(C_GET_POSITION); /* Transform::position */
+    Vec3 at=get_position(root,NULL);
+    const Vec3 column=get_position(column_root,NULL), row=get_position(logo_root,NULL), now=get_position(transform(copy),NULL);
+    at.x+=column.x-now.x; at.y+=row.y-now.y;
+    ((void (ABI *)(void *, Vec3, void *))CODE(C_SET_POSITION))(root,at,NULL);
+    if (monitor_icon) show_icon(root,which);
+    return copy;
+}
+/* Button `which` (`copy` below `root`, set up) joins the menu: registered with the UISceneParts of
+ * Logo Usage's button, which makes it one of the buttons the cursor and a press go to. */
+static int add_button(int which, unsigned char *copy, unsigned char *root, unsigned char *logo) {
+    void *scene_parts=((void *(ABI *)(void *, void *))CODE(C_PARENT_SCENE_PARTS))(logo,NULL); /* UIObject::get_ParentUISceneParts */
+    if (!scene_parts) return 0;
+    ((void (ABI *)(void *, void *, void *))CODE(C_REGISTER))(scene_parts,copy,NULL); /* UISceneParts IUIObjectRegister.Register */
+    button[which]=copy; button_root[which]=root;
+    return 1;
+}
+/* A copy that does not join the menu is not shown. */
+static void hide_copy(unsigned char *root) {
+    void *go=root ? ((void *(ABI *)(void *, void *))CODE(C_GET_GAME_OBJECT))(root,NULL) : NULL; /* Component::get_gameObject */
+    if (go) ((void (ABI *)(void *, int, void *))CODE(C_SET_ACTIVE))(go,0,NULL); /* GameObject::SetActive */
+}
 /* ConfigTopLayerMain::SwitchIn(this), as the Options menu shows: give its scene the Display Settings
- * button once. Logo Usage's button is copied into itself (Object.Instantiate(original, parent)), so the
- * menu's animations, which find their objects by name, fade the copy with it; the copy sits below
- * Streaming Rules, and its UIObject is registered with the buttons' UISceneParts, which also links it
- * into the cursor's moves. */
+ * and Cheats buttons once. Logo Usage's button is copied into itself (Object.Instantiate(original,
+ * parent)), so the menu's animations, which find their objects by name, fade the copies with it; the
+ * second copy is made from the first, which has no copy inside it yet. The copies sit in Logo Usage's
+ * row, below Streaming Rules and below Legal Info, and are linked into the cursor's moves. */
 static ABI int top_switch_in(HookRegs *r) {
     const unsigned char *parts=(const unsigned char *)load((unsigned char *)r->rdi+0x48); /* _configTop */
     unsigned char *logo=parts ? top_button(parts,LOGO_BUTTON) : NULL, *streaming=parts ? top_button(parts,STREAMING_BUTTON) : NULL;
@@ -439,61 +529,75 @@ static ABI int top_switch_in(HookRegs *r) {
     unsigned char *logo_root=container ? child_holding(transform(logo),container) : NULL;
     unsigned char *streaming_root=container ? child_holding(transform(streaming),container) : NULL;
     if (!logo_root || !streaming_root) return 0;
-    for (int32_t i=0;i<child_count(logo_root);++i) { /* this scene already has it */
+    for (int32_t i=0;i<child_count(logo_root);++i) { /* this scene already has them */
         char name[48]; guest_string(object_name(child(logo_root,i)),name,sizeof(name));
-        if (!strcmp(name,button_name)) return 0;
+        if (!strcmp(name,buttons[BUTTON_DISPLAY].name)) return 0;
     }
-    button=NULL; button_root=NULL;
-    unsigned char *root=((unsigned char *(ABI *)(void *, void *, int))CODE(C_CLONE))(logo_root,logo_root,0); /* Internal_CloneSingleWithParent */
+    memset(button,0,sizeof(button)); memset(button_root,0,sizeof(button_root));
+    unsigned char *live, *legal;
+    last_column(parts,&live,&legal);
+    unsigned char *legal_root=legal ? child_holding(transform(legal),container) : NULL;
+    if (legal_root) { /* the column right of Streaming Rules, in its row */
+        Vec3 (ABI *get_position)(void *, void *)=(Vec3 (ABI *)(void *, void *))CODE(C_GET_POSITION); /* Transform::position */
+        const Vec3 a=get_position(streaming_root,NULL), b=get_position(legal_root,NULL), c=get_position(logo_root,NULL);
+        if (legal_root==streaming_root || legal_root==logo_root || !(b.x>a.x) || !(a.x>c.x)) legal_root=NULL;
+    }
+    unsigned char *(ABI *clone)(void *, void *, int)=(unsigned char *(ABI *)(void *, void *, int))CODE(C_CLONE); /* Internal_CloneSingleWithParent */
+    unsigned char *root=clone(logo_root,logo_root,0);
     if (!root) return 0;
-    void *name=guest_text(object_name(logo_root),button_name);
-    if (name) ((void (ABI *)(void *, void *, void *))CODE(C_SET_NAME))(root,name,NULL); /* Object::set_name */
-    /* The button fades in through a CanvasGroup on its root, copied at alpha 0: the original's now
-     * fades the copy too. */
-    void *group=component_named(root,"CanvasGroup");
-    if (group) ((void (ABI *)(void *, float, void *))CODE(C_SET_ALPHA))(group,1.0f,NULL); /* CanvasGroup::set_alpha */
-    void *type=((void *(ABI *)(void *, void *))CODE(C_GET_TYPE))(logo,NULL); /* Object::GetType */
-    unsigned char *copy=((unsigned char *(ABI *)(void *, void *, int, void *))CODE(C_COMPONENT_IN_CHILDREN))(root,type,1,NULL); /* GetComponentInChildren */
-    void *scene_parts=((void *(ABI *)(void *, void *))CODE(C_PARENT_SCENE_PARTS))(logo,NULL); /* UIObject::get_ParentUISceneParts */
-    if (!copy || !scene_parts) return 0;
-    /* Below Streaming Rules, in Logo Usage's row. The buttons slide in from the left inside their
-     * roots, which stay put, and the copy keeps the slide's first frame: its button goes where the
-     * others come to rest, on their roots (world positions). */
-    Vec3 (ABI *get_position)(void *, void *)=(Vec3 (ABI *)(void *, void *))CODE(C_GET_POSITION); /* Transform::position */
-    Vec3 at=get_position(root,NULL);
-    const Vec3 column=get_position(streaming_root,NULL), row=get_position(logo_root,NULL), now=get_position(transform(copy),NULL);
-    at.x+=column.x-now.x; at.y+=row.y-now.y;
-    ((void (ABI *)(void *, Vec3, void *))CODE(C_SET_POSITION))(root,at,NULL);
-    if (monitor_icon) show_monitor(root);
-    ((void (ABI *)(void *, void *, void *))CODE(C_REGISTER))(scene_parts,copy,NULL); /* UISceneParts IUIObjectRegister.Register */
+    unsigned char *cheats_root=legal_root ? clone(root,logo_root,0) : NULL;
+    unsigned char *copy=set_up_button(BUTTON_DISPLAY,root,logo,logo_root,streaming_root);
+    if (!copy || !add_button(BUTTON_DISPLAY,copy,root,logo)) { hide_copy(root); hide_copy(cheats_root); return 0; }
     if (!link_button(parts,copy)) printf("Display page: the Display Settings button has no cursor moves\n");
-    button=copy; button_root=root; logo_button=logo;
+    logo_button=logo;
     printf("Display page: Display Settings button added below Streaming Rules\n");
-    retranslate(); /* its label */
+    /* The Cheats button joins only with its moves in place: nothing else leads the cursor to it. */
+    unsigned char *cheats=cheats_root ? set_up_button(BUTTON_CHEATS,cheats_root,logo,logo_root,legal_root) : NULL;
+    if (cheats && link_cheats(parts,cheats,copy,live,legal) && add_button(BUTTON_CHEATS,cheats,cheats_root,logo))
+        printf("Display page: Cheats button added below Legal Info\n");
+    else {
+        hide_copy(cheats_root);
+        printf("Display page: no Cheats button in game %s (the Options menu's last column is not as expected); "
+               "set unlock_songs below [cheats] in settings.ini instead\n",runtime_game_version());
+    }
+    retranslate(); /* their labels */
     return 0;
 }
-static int in_button(void *component) { return button_root && component && under(transform(component),button_root); }
+/* The page of the button a component sits in, or 0. */
+static int in_button(void *component) {
+    unsigned char *t=component ? transform(component) : NULL;
+    for (int i=0;t && i<BUTTONS;++i) if (button_root[i] && under(t,button_root[i])) return i+1;
+    return 0;
+}
 
-/* ConfigTopPartsMain::OnExecutedScenePartsMain(this, source, data): a press of the button. */
-static ABI int top_executed(HookRegs *r) { button_pressed=button && r->rsi==(uint64_t)(uintptr_t)button; return 0; }
+/* ConfigTopPartsMain::OnExecutedScenePartsMain(this, source, data): a press of a button. */
+static ABI int top_executed(HookRegs *r) { button_pressed=button_page(r->rsi); return 0; }
 /* ScenePartsMain.UIObjectGroup::GetUIObjectInfo(this, uiObject): the help bar (Back, Select) of a
- * focused button. The button has no entry of its own (the group's list is full), so it gets Logo
+ * focused button. The buttons have no entry of their own (the group's list is full), so they get Logo
  * Usage's. */
 static ABI int object_info(HookRegs *r) {
-    if (button && r->rsi==(uint64_t)(uintptr_t)button) r->rsi=(uint64_t)(uintptr_t)logo_button;
+    if (button_page(r->rsi)) r->rsi=(uint64_t)(uintptr_t)logo_button;
     return 0;
 }
 /* ConfigTopPartsMain::sendSelectReaction(this, uiObject): the description shown next. */
-static ABI int top_select(HookRegs *r) { describing=button && r->rsi==(uint64_t)(uintptr_t)button; return 0; }
+static ABI int top_select(HookRegs *r) { describing=button_page(r->rsi); return 0; }
 
-/* ConfigMain::switchLayer(this, layer): the Display Settings button opens the MS Settings page in
- * display mode; leaving it saves the settings and puts the game's texts back. */
+/* ConfigMain::switchLayer(this, layer): the Display Settings and Cheats buttons open the MS Settings
+ * page as their page; leaving it saves the settings and puts the game's texts back. A cheat that
+ * differs from the one in place waits for a restart, and a notice says so (the opening's skip only
+ * ever shows at a start). */
 static ABI int switch_layer(HookRegs *r) {
     const int layer=(int)r->rsi;
-    if (layer==LOGO_LAYER && button_pressed) { button_pressed=0; display_mode=1; r->rsi=MUSIC_STAGE_LAYER; }
-    else if (layer!=MUSIC_STAGE_LAYER && display_mode) {
-        display_mode=0; /* the rows keep their texts until the page opens as MS Settings */
+    if (layer==LOGO_LAYER && button_pressed) { page_mode=button_pressed; button_pressed=0; r->rsi=MUSIC_STAGE_LAYER; }
+    else if (layer!=MUSIC_STAGE_LAYER && page_mode) {
+        page_mode=PAGE_GAME; /* the rows keep their texts until the page opens as MS Settings */
         if (display_dirty) { display_dirty=0; theatrhythm_display_save(); }
+        if (cheats_dirty) {
+            cheats_dirty=0;
+            theatrhythm_cheats_save();
+            if (theatrhythm_cheat_get(THEATRHYTHM_CHEAT_UNLOCK_SONGS)!=theatrhythm_unlock_songs())
+                theatrhythm_gpu_notice("Cheats saved. Restart the game for the change to take effect",8000);
+        }
     }
     return 0;
 }
@@ -553,8 +657,8 @@ static void mark_row(unsigned char *view, int hide) {
 static ABI int row_view(HookRegs *r) {
     int row=-1;
     for (int i=0;i<ROWS;++i) if (row_item[i] && r->rsi==load(row_item[i]+0x38)) row=i;
-    mark_row((unsigned char *)r->rdi,display_mode && (row==ROW_WINDOW || row==ROW_RESOLUTION));
-    for (int i=0;display_mode && row==ROW_VSYNC && i<2;++i) /* its label is where the others' go */
+    mark_row((unsigned char *)r->rdi,page_mode==PAGE_DISPLAY && (row==ROW_WINDOW || row==ROW_RESOLUTION));
+    for (int i=0;page_mode==PAGE_DISPLAY && row==ROW_VSYNC && i<2;++i) /* its label is where the others' go */
         if (marked[i].view && !marked[i].moved) mark_row(marked[i].view,1);
     return 0;
 }
@@ -565,17 +669,17 @@ static ABI int row_view(HookRegs *r) {
 static ABI int initialize_list(HookRegs *r) {
     unsigned char *self=(unsigned char *)r->rdi;
     note_page(self);
-    if (page_display==display_mode) {
-        if (display_mode) for (int row=0;row<ROWS;++row) show_row(row);
+    if (page_listed==page_mode) {
+        if (page_mode) for (int row=0;row<ROWS;++row) show_row(row);
         return 0;
     }
-    page_display=display_mode;
+    page_listed=page_mode;
     resorting=1;
     ((void (ABI *)(void *, void *))CODE(C_ON_INITIALIZE_SETTING))(self,NULL); /* OnInitializeSetting */
     resorting=0;
     put(self+0xa8,0); /* _selectedItem */
     retranslate();
-    if (display_mode) for (int row=0;row<ROWS;++row) show_row(row); /* after the value texts' own terms */
+    if (page_mode) for (int row=0;row<ROWS;++row) show_row(row); /* after the value texts' own terms */
     return 0;
 }
 
@@ -592,7 +696,7 @@ static ABI int initialize_setting(HookRegs *r) {
     return 1;
 }
 
-/* ConfigMusicStageEditPartsMain::filterItem(this, listItem): display mode lists only its rows. */
+/* ConfigMusicStageEditPartsMain::filterItem(this, listItem): a page of the runner's lists only its rows. */
 static ABI int filter_item(HookRegs *r) {
     note_page((unsigned char *)r->rdi);
     unsigned char *item=(unsigned char *)r->rsi;
@@ -603,16 +707,16 @@ static ABI int filter_item(HookRegs *r) {
         if (!strcmp(term,rows[i].detail) && (i>ROW_RESOLUTION || !strcmp(class_name(item),"ConfigListItemButton"))) {
             row_item[i]=item; row=i;
         }
-    page_display=display_mode; /* every sort (the game's own too, as the scene is set up again) */
-    if (!display_mode) return 0;
-    r->rax=row>=0;
+    page_listed=page_mode; /* every sort (the game's own too, as the scene is set up again) */
+    if (!page_mode) return 0;
+    r->rax=page_mode==PAGE_CHEATS ? cheat_row(row)!=NULL : row>=0;
     return 1;
 }
 
 /* ConfigMusicStageEditPartsMain::compareItem(this, a, b): display mode orders its rows. */
 static ABI int compare_item(HookRegs *r) {
     const int a=row_of((unsigned char *)r->rsi), b=row_of((unsigned char *)r->rdx);
-    if (!display_mode || a<0 || b<0) return 0;
+    if (!page_mode || a<0 || b<0) return 0;
     r->rax=(uint64_t)(int64_t)(a-b);
     return 1;
 }
@@ -620,7 +724,7 @@ static ABI int compare_item(HookRegs *r) {
 /* ConfigListItemButton::OnSubmit(this): the pills step to their next value. */
 static ABI int submit(HookRegs *r) {
     unsigned char *item=(unsigned char *)r->rdi;
-    const int row=display_mode ? row_of(item) : -1;
+    const int row=page_mode==PAGE_DISPLAY ? row_of(item) : -1;
     if (row!=ROW_WINDOW && row!=ROW_RESOLUTION) return 0;
     play_se((const void *)load(item+0x58));
     if (row==ROW_WINDOW) theatrhythm_display_set(THEATRHYTHM_DISPLAY_MODE,(theatrhythm_display_get(THEATRHYTHM_DISPLAY_MODE)+1)%3);
@@ -635,12 +739,12 @@ static ABI int submit(HookRegs *r) {
 
 /* ConfigListItemSlider/Selector::OnHorizontalInput(this, direction 0 left / 1 right) -> handled:
  * VSync and the render resolution (selectors) and the frame rate limit (a slider) change the
- * runner's settings instead of the game's (no _onChangeData). Both keep the value count at +0x50;
- * `se`: the select sound's field. */
+ * runner's settings instead of the game's (no _onChangeData), and the Cheats page's selectors
+ * theirs. Both keep the value count at +0x50; `se`: the select sound's field. */
 static int horizontal(HookRegs *r, size_t se) {
     unsigned char *item=(unsigned char *)r->rdi;
-    const int row=display_mode ? row_of(item) : -1;
-    if (row!=ROW_VSYNC && row!=ROW_FPS && row!=ROW_RENDER) return 0;
+    const int row=page_mode ? row_of(item) : -1;
+    if (page_mode==PAGE_CHEATS ? !cheat_row(row) : row!=ROW_VSYNC && row!=ROW_FPS && row!=ROW_RENDER) return 0;
     unsigned char *parameter=(unsigned char *)load(item+0x38);
     const int old=load32(parameter+0x14), stops=load32(item+0x50);
     const int direction=(int)r->rsi;
@@ -650,25 +754,26 @@ static int horizontal(HookRegs *r, size_t se) {
     r->rax=index!=old;
     if (index==old) return 1;
     put32(parameter+0x14,index);
-    if (row==ROW_VSYNC) theatrhythm_display_set(THEATRHYTHM_DISPLAY_VSYNC,index==0);
+    if (page_mode==PAGE_CHEATS) theatrhythm_cheat_set(cheat_row(row)->cheat,index==0);
+    else if (row==ROW_VSYNC) theatrhythm_display_set(THEATRHYTHM_DISPLAY_VSYNC,index==0);
     else if (row==ROW_RENDER) theatrhythm_display_set(THEATRHYTHM_DISPLAY_RENDER_4K,index==1);
     else if (index<6) theatrhythm_display_set(THEATRHYTHM_DISPLAY_FPS_LIMIT,fps_stops[index]);
     refresh_view(item);
-    display_dirty=1;
+    if (page_mode==PAGE_CHEATS) cheats_dirty=1; else display_dirty=1;
     play_se((const void *)load(item+se));
     return 1;
 }
 static ABI int slider_horizontal(HookRegs *r) { return horizontal(r,0x68); }
 static ABI int selector_horizontal(HookRegs *r) { return horizontal(r,0x58); }
 
-/* ConfigMusicStageEditPartsMain::openCheckDefaultWindow(this): no Restore defaults in display mode. */
-static ABI int check_default(HookRegs *r) { (void)r; return display_mode; }
+/* ConfigMusicStageEditPartsMain::openCheckDefaultWindow(this): no Restore defaults on the runner's pages. */
+static ABI int check_default(HookRegs *r) { (void)r; return page_mode!=PAGE_GAME; }
 /* HelpBarContent::RefleshDisplay(this, device, buttonNames, text colors) as HelpBar::Draw shows an
- * entry (_contentsData already set): in display mode Restore defaults gets no button icon, and Draw
- * hides an entry without one. */
+ * entry (_contentsData already set): on the runner's pages Restore defaults gets no button icon, and
+ * Draw hides an entry without one. */
 static ABI int help_entry(HookRegs *r) {
     unsigned char *content=(unsigned char *)r->rdi;
-    const unsigned char *data=display_mode ? (const unsigned char *)load(content+0x38) : NULL; /* _contentsData */
+    const unsigned char *data=page_mode ? (const unsigned char *)load(content+0x38) : NULL; /* _contentsData */
     char term[48];
     if (!data) return 0;
     guest_string((const void *)load(data+0x10),term,sizeof(term)); /* _term */
@@ -702,13 +807,13 @@ static void value_text(unsigned char *behaviour, size_t field, int row) {
  * pills show the runner's value. */
 static ABI int button_value(HookRegs *r) {
     unsigned char *behaviour=(unsigned char *)r->rdi;
-    const int row=display_mode ? row_of_behaviour(behaviour) : -1;
+    const int row=page_mode==PAGE_DISPLAY ? row_of_behaviour(behaviour) : -1;
     if (row!=ROW_WINDOW && row!=ROW_RESOLUTION) return 0;
     value_text(behaviour,0x20,row);
     return 1;
 }
 static ABI int button_set_index(HookRegs *r) {
-    if (!display_mode || row_of_behaviour((void *)r->rdi)<0) return 0;
+    if (page_mode!=PAGE_DISPLAY || row_of_behaviour((void *)r->rdi)<0) return 0;
     put32((unsigned char *)r->rdi+0x18,(int32_t)r->rsi);
     return button_value(r);
 }
@@ -716,13 +821,13 @@ static ABI int button_set_index(HookRegs *r) {
  * inlines it): the frame rate limit's box shows FPS, not the stop's number. */
 static ABI int slider_value(HookRegs *r) {
     unsigned char *behaviour=(unsigned char *)r->rdi;
-    if (!display_mode || row_of_behaviour(behaviour)!=ROW_FPS) return 0;
+    if (page_mode!=PAGE_DISPLAY || row_of_behaviour(behaviour)!=ROW_FPS) return 0;
     value_text(behaviour,0x30,ROW_FPS);
     return 1;
 }
 static ABI int slider_set_index(HookRegs *r) {
     unsigned char *behaviour=(unsigned char *)r->rdi;
-    if (!display_mode || row_of_behaviour(behaviour)!=ROW_FPS) return 0;
+    if (page_mode!=PAGE_DISPLAY || row_of_behaviour(behaviour)!=ROW_FPS) return 0;
     put32(behaviour+0x18,(int32_t)r->rsi);
     unsigned char *slider=(unsigned char *)load(behaviour+0x20); /* _slider.value = index */
     const unsigned char *klass=(const unsigned char *)load(slider);
@@ -744,16 +849,24 @@ static int on_language_changed(HookRegs *r, int set_text) {
 static ABI int on_language_changed_a(HookRegs *r) { return on_language_changed(r,H_SET_TEXT_A); }
 static ABI int on_language_changed_b(HookRegs *r) { return on_language_changed(r,H_SET_TEXT_B); }
 
-/* I2 LocalizationManager::TryGetTranslation(term, out translation, ...): the Display Settings texts. */
+/* I2 LocalizationManager::TryGetTranslation(term, out translation, ...): the Display Settings and
+ * Cheats texts. */
 static ABI int translate(HookRegs *r) {
     void *component=label_text; label_text=NULL;
     char term[80]; guest_string((const void *)r->rdi,term,sizeof(term));
     const char *text=runtime_exit_prompt_translation(term); /* F4's "Exit the game?" window */
+    int owner=0;
     if (text) {}
-    else if (!strcmp(term,"Scene/Config/TopButton/007") && in_button(component)) text="Display Settings";
+    else if (!strcmp(term,"Scene/Config/TopButton/007") && (owner=in_button(component))) text=buttons[owner-1].label;
     else if (describing && !strcmp(term,"Common/DetailText/Config0007")) /* Logo Usage's description */
-        text="Change the window mode, resolution, VSync, frame rate limit and render resolution";
-    else if (display_mode) {
+        text=buttons[describing-1].description;
+    else if (page_mode==PAGE_CHEATS) {
+        if (!strcmp(term,"Scene/Config/TopButton/002")) text="Cheats";
+        else for (int i=0;i<CHEAT_ROWS;++i) {
+            if (!strcmp(term,cheat_rows[i].term)) text=cheat_rows[i].label;
+            else if (!strcmp(term,rows[cheat_rows[i].row].detail)) text=cheat_rows[i].help;
+        }
+    } else if (page_mode==PAGE_DISPLAY) {
         if (!strcmp(term,"Scene/Config/TopButton/002")) text="Display Settings";
         else if (!strcmp(term,"Scene/Config/MsSettings/004")) /* both pills */
             text=component && in_row(component,row_item[ROW_RESOLUTION]) ? "Resolution" : "Window mode";
@@ -950,7 +1063,7 @@ int runtime_display_page_install(unsigned char *image, uint64_t module_base, uns
     const int32_t rel32=(int32_t)(p-(site+5));
     p=emit_picker_stub(p);
     site[0]=0xe9; memcpy(site+1,&rel32,4); site[5]=0x90;
-    printf("Display page: Options > Display Settings and all display languages (%zu hooks, game %s)\n",
+    printf("Display page: Options > Display Settings, Cheats and all display languages (%zu hooks, game %s)\n",
            sizeof(hooks)/sizeof(*hooks),runtime_game_version());
     return 0;
 }

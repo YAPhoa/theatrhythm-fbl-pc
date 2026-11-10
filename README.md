@@ -92,14 +92,15 @@ Linux PC with its own GPU or on a Steam Deck. If you try it there, please report
 3. Choose your **game folder** (the dump) and a **save folder** (by default `save` inside the
    release folder), then press **Install**. Setup prepares the game from your dump in a few
    seconds and offers a desktop shortcut. Your dump is only read, never changed.
-   Tick **Skip the opening movie** to go straight to the title screen: no Final Fantasy 35th
-   anniversary, Square Enix and indieszero logos, no opening movie.
 4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut.
 
 Run `theatrhythm-setup.exe` again any time to change the game or save folder. It offers to copy your
-saves when the save folder moves. To get the logos and the opening movie back, untick the box and
-press **Install** again, or set `skip_opening=0` in `settings.ini`. With them on, any button skips
-a logo, and **Options** skips the movie once you have watched it through one time.
+saves when the save folder moves.
+
+To go straight to the title screen (no Final Fantasy 35th anniversary, Square Enix and indieszero
+logos, no opening movie), turn **Skip opening movie** on in the game's **Options > Cheats**; it
+applies from the next start. With the logos and the movie on, any button skips a logo, and
+**Options** skips the movie once you have watched it through one time.
 
 **DLC you already keep elsewhere**, for example for shadPS4, doesn't need a second copy: choose that
 folder as the **extra DLC folder** in setup (optional; on Linux setup asks, or pass `--dlc <folder>`).
@@ -116,9 +117,8 @@ folder's `addcont`.
 2. Run `theatrhythm-setup`: open it from your file manager and it asks with dialogs, or run
    `./theatrhythm-setup` in a terminal and it asks there. It also takes
    `--game <dump> [--save <folder>]` on the command line.
-3. Pick your **game folder** (the dump), keep or change the **save folder**, and choose whether to
-   skip the logos and the opening movie. Setup prepares the game in a few seconds and offers an entry in your
-   application menu.
+3. Pick your **game folder** (the dump) and keep or change the **save folder**. Setup prepares the
+   game in a few seconds and offers an entry in your application menu.
 4. Start the game from the menu entry, or run `./theatrhythm-fbl`.
 
 On a Steam Deck, do this in Desktop Mode; then *Add a Non-Steam Game* in Steam lists the menu entry.
@@ -179,6 +179,24 @@ advanced choices below).
 3840x2160, as on a PS4 Pro, and the picture is filtered down to your screen (the desktop resolution,
 as the game opens borderless by default), so it's sharper on any screen. On a weaker GPU set it to
 1080p, as on a PS4. It applies the next time you start the game.
+
+### Cheats
+
+In the game, **Options > Cheats** (an extra button below Legal Info, next to Display Settings) has
+two switches. They are saved to `settings.ini` in your save folder when you leave the page and
+apply the next time you start the game.
+
+- **Unlock all music**: the game unlocks songs for Music Stages as you clear them in Series
+  Quests. With this on, Music Stages and the Museum's Music Player list every song of the game from
+  the start. Your save data is not affected: it keeps only the unlocks you earned, and scores you
+  set on the other songs are saved like any score. Turn it off and the lists show your own unlocks
+  again. It lists songs, nothing else: Music Stages itself still opens the way the game opens it
+  (after your first Series Quest title), DLC songs still need their DLC, and quests, characters and
+  collectables are untouched. In `settings.ini` it is `unlock_songs=1` below the `[cheats]` line.
+- **Skip opening movie**: the game starts at the title screen, without the start-up logos and the
+  opening movie. In `settings.ini` it is `skip_opening=1` below the `[cheats]` line; a
+  `skip_opening` line from an older `settings.ini`, above that section, still counts until the
+  section has one.
 
 ### Advanced settings
 

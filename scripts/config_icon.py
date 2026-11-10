@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-2.0-or-later
-"""Build the Options menu's Config atlas bundle with the Display Settings icon in an unused area.
+"""Build the Options menu's Config atlas bundle with the Display Settings and Cheats icons in unused areas.
 
     python scripts/config_icon.py GAME --out OUT
 
@@ -11,10 +11,10 @@ by the game's Game.File.AssetBundleCryptProvider (Game.AssetBundle.AssetBundleCr
 password is a string literal in the game's own metadata, decoded the way DecryptKey does it.
 
 This writes OUT/config_icon/display.bundle: the game's bundle with assets/config_icon/display.bc7
-(encoded by tools/encode_config_icon.py) in atlas blocks no sprite uses, blocks stored uncompressed,
-encrypted again with the original header. No sprite shows those blocks: the runtime gives the
-Display Settings button a sprite of its own over them (src/runtime_display_page.c, show_monitor), so
-Logo Usage keeps its icon.
+and cheats.bc7 (encoded by tools/encode_config_icon.py) in atlas blocks no sprite uses, blocks stored
+uncompressed, encrypted again with the original header. No sprite shows those blocks: the runtime
+gives the Display Settings and Cheats buttons sprites of their own over them
+(src/runtime_display_page.c, show_icon), so Logo Usage keeps its icon.
 The catalog's CRC of the decompressed data is kept by forging the index bits of a transparent block
 in a corner no sprite uses, as scripts/button_icons.py does. The runtime mounts the bundle over the
 game's file (src/probe.c).
@@ -32,7 +32,7 @@ import zlib
 from button_icons import forge_crc, read_bundle, write_bundle
 
 PORT = Path(__file__).resolve().parent.parent
-ASSET = PORT / 'assets' / 'config_icon' / 'display.bc7'
+ASSETS = PORT / 'assets' / 'config_icon'
 CONFIG_BUNDLE = 'Media/StreamingAssets/aa/PS4/0aecbe09e3673328eba2f60a0720e8b5.bundle'
 CONFIG_CRC = 1805126692  # catalog.json m_Crc of CONFIG_BUNDLE (CUSA32853 v01.00)
 METADATA = 'Media/Metadata/global-metadata.dat'
@@ -40,13 +40,15 @@ KEY_LITERAL = 1152  # string literal that AssetBundleCryptographyParam.get_Encry
 TEXTURE_BYTES = 1024 * 1024  # BC7, one byte per texel, no mipmaps
 BLOCKS = 256  # blocks per row and column
 # Logo Usage's icon (ConfigTop_Button_Icon_07) covers atlas columns 211-269, rows 95-148 (top row
-# first). The patch was drawn on the whole blocks around it, ICON_FROM: block columns 52-67 and,
-# counted from the bottom row as Unity stores rows, block rows 218-232. It goes to PATCH instead,
-# where nothing is drawn within 40 px (10 blocks), room for the sprite's whole 92x92 rect.
-# src/runtime_display_page.c moves Logo Usage's sprite by PATCH - ICON_FROM (ICON_MOVE_X/Y).
+# first). A patch is drawn on the whole blocks around it, ICON_FROM: block columns 52-67 and,
+# counted from the bottom row as Unity stores rows, block rows 218-232. The patches go to PATCHES
+# instead, where nothing is drawn within 40 px (10 blocks) but the other patch, 44 px away: room for
+# each sprite's whole 92x92 rect. src/runtime_display_page.c moves Logo Usage's sprite by a patch's
+# place - ICON_FROM (icon_move, in the order of PATCHES).
 ICON_FROM = (52, 218)
-PATCH = (208, 192, 16, 15)  # block x, block y, width, height in blocks
-PATCH_BYTES = PATCH[2] * PATCH[3] * 16
+PATCH_SIZE = (16, 15)  # width, height in blocks
+PATCH_BYTES = PATCH_SIZE[0] * PATCH_SIZE[1] * 16
+PATCHES = (('display', (208, 192)), ('cheats', (208, 218)))  # the asset's name; block x, block y
 # The last block of the tiled data is the sheet's top right corner (texels 1020-1023 of the top
 # rows), which no sprite uses. BC7 mode 6 with every endpoint 0 decodes to transparent black
 # whatever its index bits, so its last 4 bytes are free for the CRC.
@@ -233,18 +235,26 @@ def original_texture(game):
     return b['stream'][atlas_node(b):]
 
 
-def build(original, secret, patch):
-    """The encrypted Config bundle (bytes) with `patch` (PATCH's blocks, row by row) in the atlas."""
+def patches():
+    """The checked-in patches, in the order of PATCHES."""
+    return [(ASSETS / f'{name}.bc7').read_bytes() for name, _ in PATCHES]
+
+
+def build(original, secret, blocks):
+    """The encrypted Config bundle (bytes) with `blocks` (a patch's blocks, row by row, for each of
+    PATCHES) in the atlas."""
     b = read_bundle(decrypt(original, secret))
     crc = zlib.crc32(b['stream'])
     if crc != CONFIG_CRC: raise ValueError(f'Config bundle CRC {crc} is not {CONFIG_CRC}: another game version?')
-    if len(patch) != PATCH_BYTES: raise ValueError(f'patch is {len(patch)} bytes, expected {PATCH_BYTES}')
+    if len(blocks) != len(PATCHES): raise ValueError(f'{len(blocks)} patches, expected {len(PATCHES)}')
     offset = atlas_node(b)
     linear = bytearray(untile(b['stream'][offset:]))
-    x, y, w, h = PATCH
-    for row in range(h):
-        at = ((y + row) * BLOCKS + x) * 16
-        linear[at:at + w * 16] = patch[row * w * 16:(row + 1) * w * 16]
+    w, h = PATCH_SIZE
+    for (name, (x, y)), patch in zip(PATCHES, blocks):
+        if len(patch) != PATCH_BYTES: raise ValueError(f'patch {name} is {len(patch)} bytes, expected {PATCH_BYTES}')
+        for row in range(h):
+            at = ((y + row) * BLOCKS + x) * 16
+            linear[at:at + w * 16] = patch[row * w * 16:(row + 1) * w * 16]
     # forge_crc rewrites the stream's last 4 bytes: the index bits of CLEAR_BLOCK
     stream = b['stream'][:offset] + tile(linear)[:-16] + CLEAR_BLOCK
     return encrypt(write_bundle(b, forge_crc(stream, crc)), original[:32], secret)
@@ -261,12 +271,12 @@ def main():
     target.unlink(missing_ok=True)
     source = a.game / CONFIG_BUNDLE
     if not source.is_file() or not (a.game / METADATA).is_file():
-        print(f"Config icon: {source} or the metadata not found; Display Settings shows Logo Usage's icon")
+        print(f"Config icon: {source} or the metadata not found; Display Settings and Cheats show Logo Usage's icon")
         return 0
     try:
-        bundle = build(source.read_bytes(), secret_of(a.game), ASSET.read_bytes())
+        bundle = build(source.read_bytes(), secret_of(a.game), patches())
     except (OSError, ValueError, UnicodeDecodeError) as e:
-        print(f"Config icon: {e}; Display Settings shows Logo Usage's icon")
+        print(f"Config icon: {e}; Display Settings and Cheats show Logo Usage's icon")
         return 0
     target.write_bytes(bundle)
     print(f'Config icon: {target} ({len(bundle)} bytes)')

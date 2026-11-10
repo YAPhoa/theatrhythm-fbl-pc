@@ -1,4 +1,4 @@
-/* Straight to the title screen (settings.ini skip_opening): no start-up logos, no opening movie.
+/* Straight to the title screen (the cheat skip_opening: settings.ini [cheats], Options > Cheats): no start-up logos, no opening movie.
  *
  * Logos: StartUpLogoMain plays a timeline (Final Fantasy 35th anniversary, Square Enix, indieszero).
  * Its markers reach OnTimelineEvent: 0/1 open and close a logo's skip window (+0xb4; OnUpdate jumps

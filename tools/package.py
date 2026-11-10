@@ -85,7 +85,8 @@ ICON = PORT / 'packaging' / 'windows' / 'theatrhythm-fbl.ico'
 # What prepare/run.py needs: the scripts, the assets they read and the template of settings.ini.
 PREPARE_FILES = ['run.py', 'settings.example.ini', *sorted(f'scripts/{p.name}' for p in (PORT / 'scripts').glob('*.py')),
                  *sorted(f'assets/button_icons/{p.name}' for p in (PORT / 'assets' / 'button_icons').glob('*.bc7')),
-                 'assets/config_icon/display.bc7', 'assets/controller_pad/xbox.bc7']
+                 *sorted(f'assets/config_icon/{p.name}' for p in (PORT / 'assets' / 'config_icon').glob('*.bc7')),
+                 'assets/controller_pad/xbox.bc7']
 # The DLC maker's release (--dlcmaker): its program and the ffmpeg it runs.
 DLCMAKER = PORT / 'tools' / 'dlcmaker'
 DLCMAKER_EXE = DLCMAKER / 'app' / 'out' / ('theatrhythm-dlcmaker' if LINUX else 'theatrhythm-dlcmaker.exe')
@@ -111,7 +112,8 @@ https://github.com/YAPhoa/theatrhythm-fbl-pc/tree/master/tools/dlcmaker
 
 settings.ini (made by the setup) holds the window, audio and control options; one in your save
 folder is read instead, and the in-game Options > Display Settings page (or F10) saves the display
-ones there. If the game stops, the reason is in
+ones there. Options > Cheats there can unlock all music for Music Stages (your save data is not
+affected) and skip the opening movie. If the game stops, the reason is in
 theatrhythm.log, in the log folder of your save folder. Shader caches are kept per PC in
 %LOCALAPPDATA%\\Theatrhythm Final Bar Line.
 
@@ -139,7 +141,8 @@ https://github.com/YAPhoa/theatrhythm-fbl-pc/tree/master/tools/dlcmaker
 
 settings.ini (made by the setup) holds the window, audio and control options; one in your save
 folder is read instead, and the in-game Options > Display Settings page (or F10) saves the display
-ones there. If the game stops, the reason is in
+ones there. Options > Cheats there can unlock all music for Music Stages (your save data is not
+affected) and skip the opening movie. If the game stops, the reason is in
 theatrhythm.log, in the log folder of your save folder. Shader caches are kept per PC in
 ~/.cache/theatrhythm-fbl.
 
