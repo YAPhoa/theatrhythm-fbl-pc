@@ -88,6 +88,7 @@ PREPARE_FILES = ['run.py', 'settings.example.ini', *sorted(f'scripts/{p.name}' f
                  'assets/config_icon/display.bc7', 'assets/controller_pad/xbox.bc7']
 # The DLC maker's release (--dlcmaker): its program and the ffmpeg it runs.
 DLCMAKER = PORT / 'tools' / 'dlcmaker'
+DLCMAKER_ICON = DLCMAKER / 'app' / 'theatrhythm-dlcmaker.ico'
 DLCMAKER_EXE = DLCMAKER / 'app' / 'out' / ('theatrhythm-dlcmaker' if LINUX else 'theatrhythm-dlcmaker.exe')
 # The glitch kit that --debug ships in diagnose/.
 DIAGNOSE = PORT / 'packaging' / 'windows' / 'diagnose'
@@ -363,8 +364,9 @@ def package_dlcmaker(a, bin_dir):
             strip(lib, out / 'lib' / lib.name, bin_dir, '--strip-unneeded')
             set_rpath(out / 'lib' / lib.name, '$ORIGIN')
             shipped.append(f'lib/{lib.name}')
-        (out / 'theatrhythm-fbl.png').write_bytes(ico_png(ICON))  # the window's icon
-        shipped.append('theatrhythm-fbl.png')
+        (out / 'theatrhythm-dlcmaker.png').write_bytes(ico_png(DLCMAKER_ICON))  # the window's icon
+        shipped.append('theatrhythm-dlcmaker.png')
+        (out / 'theatrhythm-fbl.png').unlink(missing_ok=True)  # the icon's name before the DLC maker had its own
     else:
         # A static ffmpeg.exe needs no DLLs; MSYS2's needs ~110 (the program itself links statically).
         libs = dll_closure(ffmpeg, bin_dir)
@@ -430,7 +432,6 @@ def appimage(folder, target, tool, runtime):
             b'[Desktop Entry]\nType=Application\nName=Theatrhythm Final Bar Line DLC maker\n'
             b'Comment=Custom songs for Theatrhythm Final Bar Line on PC\nExec=theatrhythm-dlcmaker\n'
             b'Icon=theatrhythm-dlcmaker\nCategories=AudioVideo;\nTerminal=false\n')
-        shutil.copy2(appdir / 'theatrhythm-fbl.png', appdir / 'theatrhythm-dlcmaker.png')
         target.unlink(missing_ok=True)
         # Extract-and-run: appimagetool is itself an AppImage, and build machines may lack FUSE.
         subprocess.run([str(tool), '--no-appstream', '--runtime-file', str(runtime), str(appdir), str(target)],

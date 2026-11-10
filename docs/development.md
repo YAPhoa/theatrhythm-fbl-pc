@@ -173,7 +173,10 @@ Preparing the game needs Python 3.10 or newer, using only its standard library; 
 python.org's embeddable Python in `prepare/python`. The CPU rewrite also needs `iced-x86`, which the
 bundled Python lacks, but it only runs on CPUs that are missing an instruction set the game uses.
 The icon of both exes is `packaging/windows/theatrhythm-fbl.ico` (`tools/make_app_icon.py` builds
-it from the app artwork).
+it from the app artwork). The DLC maker and the save editor have their own, so the three differ on the
+taskbar: `tools/make_tool_icons.py` turns the game icon's blue backdrop violet or green, shrinks it into
+the top left and draws a sticker over its bottom right corner (a pack box, a floppy disk); run it again
+when the game's icon changes.
 
 ## Controls and prompts, inside
 
@@ -285,6 +288,27 @@ Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stic
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).
 
+## Save files
+
+The game's saves (`backup.inf`, `musicBackup.inf`, `proficaBackup.inf` in
+`<save>/savedata/1/CUSA32853/SaveData/`; the runner's `SaveData.sce_backup/` holds the copy it makes on
+unmount) are written by `Gummi.Backup.BackupCryptography` and read the same way on every platform:
+
+- a little-endian u32 length, then the block: bytes 0-8 are salt[0:8], 8-16 iv[8:16], 16-24 iv[0:8],
+  24-32 salt[8:16], and the rest is AES-128-CBC with PKCS7 padding;
+- the key is `Rfc2898DeriveBytes(password, salt)`: PBKDF2-HMAC-SHA1, 1000 rounds, 16 bytes, with the
+  password literal its callers pass when they have none;
+- the plaintext is raw Deflate around MessagePack. Maps have string keys (MessagePack-CSharp's
+  generated formatters) except the positional records: `MusicInfo.PlayStyleRecord` (high score, date,
+  best rank, max chain, best clear mark, critical bar zones, play, clear and full chain counts, max
+  damage), `SummonStoneInfo.SummonStoneData` and `ProficaInfo.MyProficaData`.
+
+The save editor (`tools/saveeditor/`, see its README) keeps each value's MessagePack format byte, so an
+unchanged file writes back byte for byte (`theatrhythm-saveeditor.exe check`), and the game loads what
+it writes (checked on a copy of a save: an edited Rhythpo total shows on the main menu, and unlocking
+every moogle earns its feat). Its Deflate is stb's, so its files are about 20% larger than the game's;
+the game reads them and writes its own form again on its next save.
+
 ## Layout
 
 | Path | What it is |
@@ -294,6 +318,7 @@ when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEAT
 | `scripts/` | Image preparation and linking (Python) |
 | `setup/` | `theatrhythm-setup.exe`, which sets up a release folder from a player's dump |
 | `tools/dlcmaker/` | Custom song packs: the DLC maker (`core/`; its window and command line in `app/`); see its README |
+| `tools/saveeditor/` | The save editor (`core/`: the save format and names; its window and command line in `app/`); see its README |
 | `packaging/windows/` | Manifest, resources and icon of the game exe; `diagnose/`, the debug package's glitch kit |
 | `assets/button_icons/` | Xbox and keyboard icon sheets (PNG, and the game's texture format from `tools/encode_button_icons.py`) |
 | `assets/controller_pad/` | Xbox pad for the Live Info controller (PNG of the two base sprites, and their atlas blocks from `tools/encode_controller_pad.py`) |

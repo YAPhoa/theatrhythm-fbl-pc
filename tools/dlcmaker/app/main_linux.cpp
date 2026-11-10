@@ -2160,7 +2160,7 @@ void create_controls() {
 }
 
 void set_icon(SDL_Window* wnd) {
-    for (const fs::path& png : {ui.root / "theatrhythm-fbl.png", ui.root.parent_path() / "theatrhythm-fbl.png"}) {
+    for (const fs::path& png : {ui.root / "theatrhythm-dlcmaker.png", ui.root.parent_path() / "theatrhythm-fbl.png"}) {
         int w = 0, h = 0;
         unsigned char* pixels = load_rgba(png, &w, &h);
         if (!pixels)
