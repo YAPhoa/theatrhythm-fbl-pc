@@ -151,7 +151,8 @@ skipped, since mounting `Media` as an add-on would overlay the game's whole Stre
 the mount table. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
-window: `theatrhythm-setup.exe --help`.
+window: `theatrhythm-setup.exe --help`. The setup's Patches section is saved in `paths.ini` too
+(`party_limit`), since `settings.ini` has a copy in the save folder that would win over the setup's.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
 that `run.py` would pass (`src/launch.c`). Without a console its output goes to
@@ -280,6 +281,41 @@ quit event as closing the window, once no save is mounted, backed up or written
 (`WindowMain::Update`: a second window of the same scene throws "An item with the same key has
 already been added", and an exception through a hook stub ends the game) or when
 `WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
+
+The game keeps five party sets; `src/runtime_party_limit.c` makes it fifteen, in memory and all or
+nothing, the dump untouched. The list grows to 15 default sets after the constructor and the save
+reader, `_partyNumber`'s range and the `Mathf.Repeat(n, 5)` wraps of the selectors go to 15, and the
+preload and change detection cover the new sets. Places built for five stay five: Edit Party's dots
+and illustrations show the index modulo 5, and Multi Battle clamps its set to the first five. The
+numbers come from a `TermInfo.GetTranslation` hook, since only `Common/SetNo/1` to `5` exist.
+`party_limit=0` in `paths.ini` (or `THEATRHYTHM_PARTY_LIMIT=0`) leaves the game at five, and its next
+save then writes only those five, dropping sets 6-15. The sites are found by name like the patches'
+above, and the classes and the runtime's allocators, which have no names, come from the operands of the
+code there. Only 1.00's code has been checked: a version whose code differs keeps five sets.
+
+The set number in the song setup window is a `UnityEngine.UI.Text` with vertical overflow "Truncate"
+in a box barely taller than its font. At 4K (canvas scale 2) the text generator returned no lines for
+it, so the number was blank on any GPU. `src/runtime_party_label.c` sets that label to "Overflow"
+before its text is set; this is separate from the party limit patch. Its sites are found by name too,
+also checked only on 1.00's code.
+
+Party sets can have names on the Party Edit screen (`src/runtime_party_names.c`). The number in "Set N" is
+a `LocalizedText` (a uGUI `Text`, not TextMeshPro) inside the banner's `Content`, which lays out its
+children in a row; a copy of it under `Set_Ribbon` shows the name, with a term of its own that the
+translation hook in `runtime_display_page.c` answers. The screen's objects outlive it, so the copy is
+destroyed in `PartyEditMain::End`. L2 sends the screen nothing, so it is polled from `Layer::Update` while
+the set grid has the focus, and its guide on the bottom bar is a `HelpBarData` written into an empty slot of
+the Optimize guide's table row as `HelpBar::Draw` starts. L2 calls the game's opener of the Optimize window,
+and while that window is up the hook swaps its message and button terms; the message isn't a uGUI `Text`,
+so typing redraws it by translating its term again (`SetTextByTermInfo`). The answer is taken in the
+window's callback, so Optimize never runs. The game has no text entry of its own (on PS4, the system
+dialog), so typing is SDL text input with nothing drawn (`theatrhythm_gpu_text_input_begin_silent`), which
+opens Steam's on-screen keyboard when Steam's hint asks for it: SDL 3.4.12 and later on X11, and
+`SteamKeyboard` in `window.cpp` on Windows, where SDL has no such code. `runtime_pad_text_mode` keeps the keyboard from
+pressing buttons meanwhile. `THEATRHYTHM_IME_TEXT` sets the starting text for scripted runs. Names live in
+`party_names.txt` in the save folder, not in the game's save. Its sites are found by name too, also
+checked only on 1.00's code. `SetTextByTermInfo`'s pattern starts after the 7 bytes the Display page's
+hook moves, so it matches with that hook in place.
 
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`

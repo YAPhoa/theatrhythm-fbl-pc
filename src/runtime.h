@@ -79,6 +79,15 @@ void runtime_game_code_open(unsigned char *module, uint64_t size, uint64_t code_
 void runtime_game_code_close(void);
 /* Every site of `sites` into `found`: 0, or -1 after logging "<who>: <site> not found in game ...". */
 int runtime_game_code_find(const GameSite *sites, size_t count, GameCode *found, const char *who);
+/* A hook on game code. The registers it sees: the six argument registers (changes are passed on),
+ * and what the game function returns when the hook returns 1. */
+typedef struct { uint64_t rdi, rsi, rdx, rcx, r8, r9, rax, rdx_out; } HookRegs;
+typedef int (ABI *HookFn)(HookRegs *regs);
+/* Writes the stub of `fn` at `p` and returns its end (at most runtime_hook_stub_size bytes): it calls
+ * fn and returns its result, or runs the `moved` bytes at `function` (at most 16) and goes on into
+ * `function` after them. `floats`: the xmm argument registers the function takes (kept for it). */
+unsigned char *runtime_hook_stub(unsigned char *p, HookFn fn, unsigned floats, unsigned char *function, unsigned moved);
+size_t runtime_hook_stub_size(unsigned floats);
 /* Display Settings in the game's Options menu, and all nine display languages on its Language page
  * (runtime_display_page.c): hooks the game's code in the
  * image (still writable), with stubs written to `stubs` (`size` bytes, within rel32 reach of it);
@@ -111,6 +120,24 @@ const char *runtime_exit_prompt_translation(const char *term);
 int runtime_exit_prompt_open(void);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
+/* Fifteen party sets instead of five (runtime_party_limit.c), the save's list extended on load. */
+int runtime_party_limit_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The song setup window's set number, which UI.Text drops at 4K (runtime_party_label.c). */
+int runtime_party_label_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* Names for party sets on the Party Edit screen (runtime_party_names.c), with its stubs written to
+ * `stubs` (`size` bytes, within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_party_names_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
+/* The translation hook's question: its text for `term`, a guest string like `like`, or NULL. `text`
+ * and `method` are the text being translated and the MethodInfo of its SetTextByTermInfo. */
+void *runtime_party_names_translation(void *text, void *method, const char *term, const void *like);
+/* The pad (runtime_pad.c), for the game's naming window: the buttons the game sees; text mode (the
+ * keyboard types instead of pressing buttons, and what is held when it ends stays hidden until
+ * released); a short press of Cross. */
+uint32_t runtime_pad_held(void);
+void runtime_pad_text_mode(int on);
+void runtime_pad_tap(void);
+/* UTF-8 to NUL-terminated UTF-16, at most `max` units before the NUL (runtime_services.c). */
+void runtime_utf8_to_utf16(const char *in, uint16_t *out, uint32_t max);
 const char *runtime_import_name(const char *name);
 uintptr_t runtime_rwlock_resolve(const char *name);
 void runtime_rwlock_report(void);
