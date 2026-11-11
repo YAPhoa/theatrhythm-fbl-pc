@@ -144,10 +144,25 @@ std::string Names::get(int64_t id) const {
     return it == by_id.end() ? "" : it->second;
 }
 
+std::string Names::effect(int64_t id, int64_t rarity) const {
+    auto t = effect_text.find(id);
+    auto v = effect_values.find(id);
+    if (t == effect_text.end() || v == effect_values.end() || rarity < 0 || rarity >= static_cast<int64_t>(v->second.size()))
+        return get(id);
+    std::string s = t->second;
+    if (size_t p = s.find("{}"); p != std::string::npos)
+        s.replace(p, 2, std::to_string(std::lround(v->second[static_cast<size_t>(rarity)] * 100)));
+    return s;
+}
+
 std::string Names::load(const std::string& game_dir) {
     by_id.clear();
     sort.clear();
     faces.clear();
+    effect_text.clear();
+    effect_values.clear();
+    music_series.clear();
+    music_type.clear();
     loaded = false;
     try {
         Game game(game_dir);
@@ -179,10 +194,50 @@ std::string Names::load(const std::string& game_dir) {
                 by_id[p.base + std::atoll(digits.c_str())] = it.v.s;
             }
         }
-        for (const char* t : {"CharacterTable", "ItemTable", "MoogleTable", "AirShipTable", "MusicTable", "CollecaTable", "QuestWorldTable"})
+        // Summon stone effects: "EXP received +<color=...><num id=summonstone_effect>%</color>", and the
+        // value at each rarity (0.05 = 5%).
+        for (const auto& it : game.texts("Table/Table_SummonStoneEffect").map) {
+            static const std::string prefix = "Table/Table_SummonStoneEffect/SummonStoneEffectText/SUMMONSTONEEFFECT";
+            if (!it.k.is_str() || it.k.s.rfind(prefix, 0) != 0 || !it.v.is_str())
+                continue;
+            int64_t id = 290000000 + std::atoll(it.k.s.c_str() + prefix.size());
+            std::string text, s = it.v.s;
+            bool num = false;
+            for (size_t p = 0; p < s.size();) {
+                if (s[p] != '<') {
+                    text += s[p++];
+                    continue;
+                }
+                size_t q = s.find('>', p);
+                if (q == std::string::npos)
+                    break;
+                if (s.compare(p, 5, "<num ") == 0 && !num) {
+                    text += "{}";
+                    num = true;
+                }
+                p = q + 1;
+            }
+            effect_text[id] = text;
+            std::string name = text.substr(0, text.find("{}"));
+            while (!name.empty() && (name.back() == '+' || name.back() == '-' || name.back() == ' '))
+                name.pop_back();
+            by_id[id] = name;
+        }
+        for (const auto& [id, row] : game.table("SummonStoneEffectTable").rows)
+            if (const Value* v = row.find("EffectValues"); v && v->is_list())
+                for (const Value& x : v->list)
+                    effect_values[id].push_back(dlcmaker::py_float(x));
+        for (const char* t : {"CharacterTable", "ItemTable", "MoogleTable", "AirShipTable", "MusicTable", "CollecaTable", "QuestWorldTable",
+                              "SeriesTable"})
             for (const auto& [id, row] : game.table(t).rows)
                 if (const Value* o = row.find("SortOrder"))
                     sort[id] = num(*o);
+        for (const auto& [id, row] : game.table("MusicTable").rows) {
+            if (const Value* s = row.find("SortSeriesID"))
+                music_series[id] = num(*s);
+            if (const Value* t = row.find("MSType"))
+                music_type[id] = num(*t);
+        }
         auto name = [&](int64_t id) { return id == kNone ? std::string() : get(id); };
         for (const auto& [id, row] : game.table("TheaterTable").rows)
             by_id[id] = name(num(row.get("MusicID")));
@@ -278,6 +333,8 @@ std::string Names::load(const std::string& game_dir) {
         by_id.clear();
         sort.clear();
         faces.clear();
+        effect_text.clear();
+        effect_values.clear();
         return e.what();
     }
 }

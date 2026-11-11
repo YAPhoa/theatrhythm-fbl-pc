@@ -37,17 +37,50 @@ compressed MessagePack (see [docs/development.md](../../docs/development.md#save
   party's members, moogle and airship; a summon stone's summon), the editor shows its picture and
   name instead of the ID.
   **Change...** (or clicking the picture) opens a grid of pictures, as the DLC maker's monster
-  picker does: click one to choose it. Ones you haven't unlocked yet, and characters already in
-  that party, are greyed out and can't be picked, because the game wouldn't allow them either.
-- **Moogles and Airships**: these pages show one at a time. **Selected:** picks which (locked ones
+  picker does: click one, then **OK** (or double-click it). Characters already in that party are
+  greyed out. Ones you haven't unlocked yet are greyed out too; choosing one offers to unlock it.
+  An airship can also be **None**. A party's page has all four members. Each
+  member's abilities are chosen from a list of that character's abilities, learned ones first (the
+  ones in the member's other slots are left out).
+- **Parties**: the **Parties** page lists the parties, one row each with its members' pictures,
+  their names and its summon stone; **Current** marks the party the game has selected. Click a row
+  (or select it and press Enter) to open the party. **Up**, **Down** and **Remove** show on the row
+  under the mouse or the selected row; Alt+Up and Alt+Down move the selected party and Delete
+  removes it. Moving keeps the game's current party the same party. **Add a party**, under the list,
+  adds an empty one. **Remove** never goes below the game's 5: the game only switches between
+  Parties 1 to 5, so parties after Party 5 are listed under "Not selectable in the game". **Party
+  Edit** on the same page holds the last sort types the game used, chosen by name.
+- **Characters**: one page per character: their values, their **Last set abilities** (chosen from
+  lists, as a party member's are) and a table of their abilities with an **Unlocked** box each.
+- **Summon stones**: the **Stones** page lists the stones you have, numbered in order, each with
+  its summon's picture and effects, in rows like the parties': click a row (or Enter) to open it,
+  **Up**, **Down** and **Remove** on the row under the mouse or the selected one, or Alt+Up,
+  Alt+Down and Delete. **Add a stone...** picks a summon and adds a stone found by you with one
+  effect (EXP received, rarity 1). Parties point at their stone by its number, so the editor keeps
+  each party on the same stone (a party whose stone is removed has none). A stone's page has its
+  three effects, each chosen from a list by name with its rarity (**None** for an empty slot), and
+  **Locked** is the game's lock that keeps it from being sold. A party's **Summon stone** is chosen
+  from the list of stones. The game allows 999 stones.
+- **Moogles and Airships**: these pages show one at a time. **Showing:** picks which (locked ones
   too, greyed out), and its values show below, where you can unlock it.
-- **Change all entries**: a list (characters, moogles, items, CollectaCards...) offers to switch one
-  on/off value on every entry at once (**All on** unlocks every moogle), or to set one number on all
-  of them (every item's count).
-- **Save** writes the file in the game's format. The first save of a session copies the file it
-  replaces into `save-backups/` next to the editor, named with the date and time. To undo, copy that
-  file back over the save (with the game closed) and rename it to `backup.inf` (or
-  `musicBackup.inf`, `proficaBackup.inf`).
+- **Song select**: the last selected song is chosen from every song, listed under its series in the
+  game's order (a name a series has twice shows its stage type, BMS, FMS or EMS); the sort type and
+  sort category are chosen by the game's own names (All, Favorites; Series, Cleared Rank...).
+- **Theater**, **Profile card illustrations**, **Help** and **Feat notices seen**: one table each,
+  every movie with an **Owned** box, every illustration with an **Unlocked** box, every help page with
+  **Unlocked** and **Read** boxes and every feat with **Hint viewed** and **Seen** boxes; click a box
+  (or select a row and press Space) to tick it. Illustrations that share a name are numbered, as in the tree. Drag the line between a
+  table's column headers to widen either column.
+- **All ...** (on a list's page): **Unlock all** / **Lock all** (or **All on** / **All off**)
+  switches one value on every entry at once, and **Set on all** sets one number on all of them
+  (every item's count). Turning things off, setting a number, or changing more than a few entries
+  asks first.
+- **Undo** (Ctrl+Z) takes back the last change of many values at once, a picture choice, or a stone
+  added, moved or removed (stones and parties). Ctrl+S saves and Ctrl+F goes to Find.
+- **Save** writes the file in the game's format. Every save first copies the file it replaces into
+  `save-backups/` next to the editor, named with the date and time. **Backups...** > **Restore a
+  backup...** puts one back (the file it replaces is backed up too); **Open the backup folder**
+  shows them. Close the game before saving or restoring: the editor warns when it is running.
 
 The game may react to what you change the next time it starts: unlocking every moogle earns the
 "Acquired every moogle style!" feat, for example. Unlocking things the game would never unlock (DLC
