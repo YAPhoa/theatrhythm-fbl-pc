@@ -109,6 +109,8 @@ int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsi
 const char *runtime_exit_prompt_translation(const char *term);
 /* 1 while the exit prompt's window is open (the pad turns Options into Circle there: No). */
 int runtime_exit_prompt_open(void);
+/* Local players this run, 1 or 2 (settings.ini players; auto decides once, by the gamepads connected). */
+int runtime_players(void);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);

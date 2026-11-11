@@ -424,6 +424,10 @@ extern "C" int theatrhythm_gpu_vibration_percent(void) {
     return TheatrhythmSettings::Get().vibration.load(std::memory_order_relaxed);
 }
 
+extern "C" int theatrhythm_gpu_players(void) {
+    return TheatrhythmSettings::Get().players.load(std::memory_order_relaxed);
+}
+
 extern "C" const char* theatrhythm_pad_map(int keyboard) {
     const auto& v = TheatrhythmSettings::Get();
     return keyboard ? v.key_map.c_str() : v.pad_map.c_str();

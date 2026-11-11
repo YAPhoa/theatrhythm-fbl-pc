@@ -20,6 +20,8 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
 int theatrhythm_gpu_text_input_begin(const char *text, const char *prompt) { (void)text; (void)prompt; return 0; }
 int theatrhythm_gpu_text_input_poll(char *text, uint64_t size) { (void)text; (void)size; return 0; }
 static int stub_menu_confirm_swap = 0;
+static int stub_players=1;
+int runtime_players(void) { return stub_players; }
 int theatrhythm_gpu_menu_confirm_swap(void) { return stub_menu_confirm_swap; }
 void theatrhythm_gpu_common_dialog_initialized(void) {}
 static char mock_user_dir[512]="user";
@@ -124,6 +126,18 @@ int main(void) {
     assert(keyboard_close(1)==0 && keyboard_close(1)==IME_NOT_OPENED);
     int32_t color=-1;
     assert(user_color(USER_ID,&color)==0 && color==0 && user_color(7,&color)==USER_INVALID_ARGUMENT);
+    /* One player by default; players=2 logs a second user in, red, with its own name and login event. */
+    int32_t users[4]={0}, event[2]={0};
+    char user_text[16];
+    assert(user_list(users)==0 && users[0]==USER_ID && users[1]==-1);
+    assert(user_color(USER_ID2,&color)==USER_INVALID_ARGUMENT && user_name(USER_ID2,user_text,sizeof(user_text))==USER_INVALID_ARGUMENT);
+    stub_players=2;
+    assert(user_list(users)==0 && users[0]==USER_ID && users[1]==USER_ID2 && users[2]==-1 && users[3]==-1);
+    assert(user_color(USER_ID2,&color)==0 && color==1);
+    assert(user_name(USER_ID2,user_text,sizeof(user_text))==0 && !strcmp(user_text,"Player 2"));
+    assert(user_initialize(NULL)==0);
+    assert(user_event(event)==0 && event[1]==USER_ID && user_event(event)==0 && event[1]==USER_ID2 && user_event(event)==USER_NO_EVENT);
+    stub_players=1;
 
     /* MsgDialog: a user message finishes with OK; a progress bar runs until closed. */
     assert(msg_init()==0);

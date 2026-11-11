@@ -233,6 +233,15 @@ DualSense, Xbox icons for other gamepads, and key names for the keyboard. The co
 Live Info panel and in the tutorial follows too: an Xbox pad for other gamepads, the DualShock 4
 otherwise. Set `button_icons` in `settings.ini` to `ps4`, `xbox` or `keyboard` to keep one set.
 
+### Two players
+
+Set `players=2` in `settings.ini` (or `THEATRHYTHM_PLAYERS=2`) to give the game a second PS4 user
+with its own controller. The first gamepad connected is player 1's and the second is player 2's;
+the keyboard and mouse always belong to player 1. If player 1's gamepad is gone for 3 seconds (battery, cable, dropped link) while player 2's is still connected, player 2's gamepad becomes player 1's, so the menus keep working; the gamepad that comes back then takes the free slot. Gamepads can be plugged in or swapped while
+playing: a pad that drops is picked up again in its slot. `players=auto` (the template's default) does this only when two gamepads are connected at
+start; `players=1` leaves the game exactly as before, and is what a `settings.ini` without the line gets. Both players share the game's own settings: this only provides the
+second controller, so what the game does with a second user (for example in pairs mode) is up to it.
+
 ## Issues and suggestions
 
 Found a problem? [Open an issue](https://github.com/YAPhoa/theatrhythm-fbl-pc/issues) and attach

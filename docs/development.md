@@ -281,6 +281,11 @@ quit event as closing the window, once no save is mounted, backed up or written
 already been added", and an exception through a hook stub ends the game) or when
 `WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
 
+With `players=2` (`THEATRHYTHM_PLAYERS`) the runtime has two pad slots: user 2 is logged in by
+`src/runtime_services.c` and `scePadOpen` for it returns handle 2, with its own sample, rumble and SDL
+gamepad (the first one SDL lists that player 1 does not hold). The keyboard, mouse and the scripted
+input below stay with slot 0.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).

@@ -70,6 +70,8 @@ struct Values {
     std::atomic<int> anisotropy{0};
     /// Controller vibration strength in percent; 0 turns it off (runtime_pad.c).
     std::atomic<int> vibration{100};
+    /// Local players: 1, 2 (a second PS4 user and pad are offered to the game, runtime_pad.c) or 0 for auto.
+    std::atomic<int> players{1};
     /// Button remapping for the gamepad and the keyboard/mouse (runtime_pad.c apply_button_map);
     /// set before the guest starts, read once at its first pad sample.
     std::string pad_map, key_map;

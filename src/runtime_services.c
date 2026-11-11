@@ -20,6 +20,7 @@
 #endif
 
 #define USER_ID 1
+#define USER_ID2 2 /* player 2, logged in only when settings.ini players=2 */
 #define USER_NAME "Player"
 #define ORBIS_OK 0
 #define USER_INVALID_ARGUMENT ((int32_t)0x80960005)
@@ -47,32 +48,39 @@ static int new_id(void) { pthread_mutex_lock(&lock); int id=next_id++; pthread_m
 static void note(const char *what) { printf("Runtime: %s\n",what); }
 
 /* ---- UserService ---- */
-static int login_event_pending=1;
-static ABI int32_t user_initialize(const void *params) { (void)params; note("UserService initialized (user 1 logged in)"); return 0; }
+static int login_event_pending=1, login_event_pending2;
+static int players(void) { return runtime_players(); }
+static ABI int32_t user_initialize(const void *params) {
+    (void)params;
+    pthread_mutex_lock(&lock); login_event_pending2=players()>=2; pthread_mutex_unlock(&lock);
+    note(players()>=2 ? "UserService initialized (users 1 and 2 logged in)" : "UserService initialized (user 1 logged in)");
+    return 0;
+}
 static ABI int32_t user_terminate(void) { return 0; }
 static ABI int32_t user_initial(int32_t *id) { if (!id) return USER_INVALID_ARGUMENT; *id=USER_ID; return 0; }
 static ABI int32_t user_list(int32_t *ids) {
     if (!ids) return USER_INVALID_ARGUMENT;
-    ids[0]=USER_ID; ids[1]=ids[2]=ids[3]=-1; return 0;
+    ids[0]=USER_ID; ids[1]=players()>=2 ? USER_ID2 : -1; ids[2]=ids[3]=-1; return 0;
 }
 static ABI int32_t user_name(int32_t id,char *name,uint64_t size) {
-    if (id!=USER_ID || !name) return USER_INVALID_ARGUMENT;
+    if ((id!=USER_ID && !(id==USER_ID2 && players()>=2)) || !name) return USER_INVALID_ARGUMENT;
     if (sizeof USER_NAME>size) return (int32_t)0x8096000a; /* BUFFER_TOO_SHORT */
-    strcpy(name,USER_NAME); return 0;
+    strcpy(name,id==USER_ID2 ? "Player 2" : USER_NAME); return 0;
 }
 /* sceUserServiceGetUserColor(user, color): 0 blue, 1 red, 2 green, 3 pink. The one user is
  * player 1, blue (shadPS4 keeps that 1-based, as its pad code reads it, but returns it raw). */
 static ABI int32_t user_color(int32_t id,int32_t *color) {
-    if (id!=USER_ID || !color) return USER_INVALID_ARGUMENT;
-    *color=0; return 0;
+    if ((id!=USER_ID && !(id==USER_ID2 && players()>=2)) || !color) return USER_INVALID_ARGUMENT;
+    *color=id==USER_ID2 ? 1 : 0; return 0;
 }
 static ABI int32_t user_event(int32_t *event) {
     if (!event) return USER_INVALID_ARGUMENT;
     pthread_mutex_lock(&lock);
-    int pending=login_event_pending; login_event_pending=0;
+    int pending=login_event_pending, pending2=!pending && login_event_pending2;
+    if (pending) login_event_pending=0; else if (pending2) login_event_pending2=0;
     pthread_mutex_unlock(&lock);
-    if (!pending) return USER_NO_EVENT;
-    event[0]=0; event[1]=USER_ID; /* LOGIN */
+    if (!pending && !pending2) return USER_NO_EVENT;
+    event[0]=0; event[1]=pending ? USER_ID : USER_ID2; /* LOGIN */
     return 0;
 }
 

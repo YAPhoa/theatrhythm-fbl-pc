@@ -83,6 +83,9 @@ int theatrhythm_display_resolution(int index, int *width, int *height);
 void theatrhythm_display_save(void);
 /* Controller vibration strength (settings.ini vibration), 0 (off) to 100 (the game's own). */
 int theatrhythm_gpu_vibration_percent(void);
+/* Local players: 1, 2 or 0 for auto (settings.ini players, THEATRHYTHM_PLAYERS): 2 logs a second PS4 user in and
+ * gives it the second gamepad. */
+int theatrhythm_gpu_players(void);
 /* Button remapping (settings.ini pad_map, or key_map when keyboard is 1; THEATRHYTHM_PAD_MAP and
  * THEATRHYTHM_KEY_MAP override them): "" when unset. */
 const char *theatrhythm_pad_map(int keyboard);

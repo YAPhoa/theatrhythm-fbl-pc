@@ -62,6 +62,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.startup_anisotropy = v.anisotropy = TheatrhythmGraphics::ParseAnisotropy(i);
     } else if (key == "vibration") {
         v.vibration = value.empty() ? 100 : std::clamp(i, 0, 100);
+    } else if (key == "players") {
+        v.players = value.empty() ? 1 : value == "auto" ? 0 : std::clamp(i, 1, 2);
     } else if (key == "pad_map") {
         v.pad_map = value;
     } else if (key == "key_map") {
@@ -213,6 +215,7 @@ void Load() {
         {"THEATRHYTHM_ASYNC_SHADERS", "async_shaders"}, {"THEATRHYTHM_FRAMES_AHEAD", "frames_queued"},
         {"THEATRHYTHM_ASYNC_SHADERS_SKIP_FRAMES", "async_shaders_skip_frames"},
         {"THEATRHYTHM_ANISOTROPY", "anisotropy"},     {"THEATRHYTHM_VIBRATION", "vibration"},
+        {"THEATRHYTHM_PLAYERS", "players"},
         {"THEATRHYTHM_AUDIO_VOLUME", "master_volume"}, {"THEATRHYTHM_AUDIO_CHANNELS", "audio_channels"},
         {"THEATRHYTHM_MENU_CONFIRM_SWAP", "menu_confirm_swap"}, {"THEATRHYTHM_SKIP_OPENING", "skip_opening"},
         {"THEATRHYTHM_PAD_MAP", "pad_map"},       {"THEATRHYTHM_KEY_MAP", "key_map"},

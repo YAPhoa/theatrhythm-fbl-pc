@@ -10,6 +10,8 @@
 
 int theatrhythm_gpu_overlay_captures_input(void) { return 0; }
 int theatrhythm_gpu_vibration_percent(void) { return 100; }
+static int stub_players=1;
+int theatrhythm_gpu_players(void) { return stub_players; }
 const char *theatrhythm_pad_map(int keyboard) { (void)keyboard; return ""; }
 void runtime_button_icons_input(int set) { (void)set; }
 static int prompt_open;
@@ -97,29 +99,104 @@ static void test_pad_map(void) {
  * hidden until released, also after the window closed. Outside the prompt it passes as it is. */
 static void test_exit_prompt_no(void) {
     PadData d;
-    host_sample=(PadData){.connected=1,.connected_count=1,.buttons=BTN_OPTIONS|BTN_UP};
-    sample(&d);
+    host_sample[0]=(PadData){.connected=1,.connected_count=1,.buttons=BTN_OPTIONS|BTN_UP};
+    sample(&d,0);
     assert(d.buttons==(BTN_OPTIONS|BTN_UP));
     prompt_open=1;
-    sample(&d);
+    sample(&d,0);
     assert(d.buttons==BTN_LEFT);
-    SDL_Delay(120); sample(&d);
+    SDL_Delay(120); sample(&d,0);
     assert(d.buttons==0);
-    SDL_Delay(80); sample(&d);
+    SDL_Delay(80); sample(&d,0);
     assert(d.buttons==BTN_CROSS);
     prompt_open=0; /* the window took the Cross */
-    sample(&d);
+    sample(&d,0);
     assert(d.buttons==BTN_UP); /* Options still held: hidden; Up goes on */
-    host_sample.buttons=BTN_UP|BTN_CROSS;
-    sample(&d);
+    host_sample[0].buttons=BTN_UP|BTN_CROSS;
+    sample(&d,0);
     assert(d.buttons==BTN_UP); /* a Cross held then too, until all are released */
-    host_sample.buttons=BTN_UP;
-    sample(&d);
+    host_sample[0].buttons=BTN_UP;
+    sample(&d,0);
     assert(d.buttons==BTN_UP);
-    host_sample.buttons=BTN_CIRCLE; /* Circle outside the prompt is Circle */
-    sample(&d);
+    host_sample[0].buttons=BTN_CIRCLE; /* Circle outside the prompt is Circle */
+    sample(&d,0);
     assert(d.buttons==BTN_CIRCLE);
-    host_sample=(PadData){0};
+    host_sample[0]=(PadData){0};
+}
+
+/* Two players: user 2 is pad slot 1 (handle 2), only with players=2; the scripted inputs and the
+ * exit window's No stay with player 1. */
+static void test_second_player(void) {
+    PadData d;
+    initialized=1;
+    stub_players=1;
+    assert(pad_open(2,0,0,NULL)==ERR_INVALID_ARG && !opened[1]);
+    stub_players=2;
+    assert(pad_open(0,0,0,NULL)==ERR_INVALID_ARG && pad_open(3,0,0,NULL)==ERR_INVALID_ARG && pad_open(2,0,1,NULL)==ERR_INVALID_ARG);
+    assert(slot_of(1)<0 && slot_of(2)<0 && pad_read_state(2,&d)==ERR_INVALID_HANDLE);
+    opened[0]=opened[1]=1; /* as pad_open does, without starting the host thread */
+    assert(slot_of(1)==0 && slot_of(2)==1 && slot_of(3)<0 && pad_ok_handle(2)==0);
+    assert(pad_open(2,0,0,NULL)==ERR_ALREADY_OPENED);
+    host_sample[0]=(PadData){.connected=1,.connected_count=1,.buttons=BTN_UP};
+    host_sample[1]=(PadData){.connected=1,.connected_count=2,.buttons=BTN_DOWN};
+    assert(pad_read_state(1,&d)==0 && d.buttons==BTN_UP);
+    assert(pad_read_state(2,&d)==0 && (d.buttons & BTN_DOWN) && !(d.buttons & BTN_UP));
+    ControllerInfo info;
+    assert(pad_info(2,&info)==0 && info.connected_count==2 && pad_info(1,&info)==0 && info.connected_count==1);
+    /* Rumble is per user. */
+    const uint8_t motors[2]={200,100};
+    assert(pad_vibration(2,motors)==0 && rumble[1].large==200 && rumble[0].large==0);
+    /* The exit window belongs to player 1: player 2's buttons are hidden while it is open. */
+    host_sample[1].buttons=BTN_CROSS;
+    prompt_open=1;
+    assert(pad_read_state(2,&d)==0 && d.buttons==0);
+    prompt_open=0;
+    assert(pad_read_state(2,&d)==0 && d.buttons==BTN_CROSS);
+    assert(pad_close(2)==0 && !opened[1] && pad_close(2)==ERR_INVALID_HANDLE && opened[0]);
+    opened[0]=0; stub_players=1;
+    host_sample[0]=host_sample[1]=(PadData){0};
+    memset(&rumble,0,sizeof(rumble));
+}
+
+/* players=auto with no gamepad connected plays with one, and the answer is kept. */
+static void test_auto_players(void) {
+    stub_players=0;
+    assert(runtime_players()==1 && slots()==1);
+    stub_players=2;
+    assert(runtime_players()==2); /* a fixed setting always wins */
+    stub_players=0;
+    assert(runtime_players()==1); /* decided once */
+    stub_players=1;
+}
+
+/* Player 1's gamepad drops: after the grace time player 2's takes its place; one that comes back
+ * sooner is player 1 again, and a one-player run never moves anything. */
+static void test_failover(void) {
+    SDL_Gamepad *const a=(SDL_Gamepad *)0x1000, *const b=(SDL_Gamepad *)0x2000;
+    HostPad pads[PAD_SLOTS]={{0}};
+    uint64_t lost=0, t=1000000;
+    stub_players=2;
+    pads[0].g=a; pads[1].g=b; pads[1].id=7; pads[1].connected_count=2;
+    assert(!host_failover(pads,&lost,t) && lost==0);            /* both there */
+    pads[0].g=NULL;
+    assert(!host_failover(pads,&lost,t) && lost==t);            /* starts the clock */
+    assert(!host_failover(pads,&lost,t+FAILOVER_US-1) && pads[1].g==b);
+    pads[0].g=a;                                                /* it came back in time */
+    assert(!host_failover(pads,&lost,t+FAILOVER_US) && lost==0 && pads[0].g==a && pads[1].g==b);
+    pads[0].g=NULL; t+=10000000;
+    assert(!host_failover(pads,&lost,t) && !host_failover(pads,&lost,t+FAILOVER_US-1));
+    strcpy(gamepad_name[1],"Pad B");
+    assert(host_failover(pads,&lost,t+FAILOVER_US));            /* moved */
+    assert(pads[0].g==b && pads[0].id==7 && pads[0].connected_count==2 && !pads[1].g && lost==0);
+    assert(!strcmp(gamepad_name[0],"Pad B") && !strcmp(gamepad_name[1],"none"));
+    assert(!host_failover(pads,&lost,t+2*FAILOVER_US));         /* nothing left to move */
+    pads[1].g=a;                                                /* player 1's old pad returns as player 2 */
+    assert(!host_failover(pads,&lost,t+3*FAILOVER_US) && pads[0].g==b && pads[1].g==a);
+    pads[0].g=NULL; pads[1].g=NULL; lost=0;
+    assert(!host_failover(pads,&lost,t) && lost==0);            /* no pads: nothing to move */
+    stub_players=1; pads[0].g=NULL; pads[1].g=b;
+    assert(!host_failover(pads,&lost,t) && !host_failover(pads,&lost,t+9*FAILOVER_US) && !pads[0].g);
+    strcpy(gamepad_name[0],"none"); strcpy(gamepad_name[1],"none");
 }
 
 int main(void) {
@@ -127,6 +204,9 @@ int main(void) {
     test_key_map();
     test_pad_map();
     test_exit_prompt_no();
+    test_second_player();
+    test_auto_players();
+    test_failover();
     puts("pad tests passed");
     return 0;
 }
