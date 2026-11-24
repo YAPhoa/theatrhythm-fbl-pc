@@ -9,12 +9,14 @@
  * Without paths.ini here, the per-user copy the setup also writes is read (user_paths_ini).
  * Narrow strings are UTF-8 (Windows: the manifest's activeCodePage). */
 #include "launch.h"
+#include "prepared_stamp.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #ifdef _WIN32
+#include <io.h>
 #include <windows.h>
 #define PATH_CHARS (MAX_PATH * 4)
 #define SEP "\\"
@@ -336,6 +338,83 @@ static int quiet_exit(unsigned long code) {
 #endif
 }
 
+/* `folder` names a folder with an eboot.bin (the dump). */
+static int has_eboot(const char *folder) {
+    char eboot[PATH_CHARS];
+    if (!folder[0]) return 0;
+    snprintf(eboot, sizeof eboot, "%s" SEP "eboot.bin", folder);
+    return exists(eboot);
+}
+
+/* game/ holds an image prepared by this release from paths.ini's dump (src/prepared_stamp.h). */
+static int prepared(void) {
+    return exists(boot) && exists(profile) && theatrhythm_prepared(exe_dir, game);
+}
+
+#ifdef _WIN32
+/* An inheritable copy of the handle behind `stream`, for the setup; NULL when there is none. */
+static HANDLE pass_handle(FILE *stream) {
+    HANDLE h = (HANDLE)_get_osfhandle(_fileno(stream)), copy = NULL;
+    if (!h || h == INVALID_HANDLE_VALUE) return NULL;
+    if (!DuplicateHandle(GetCurrentProcess(), h, GetCurrentProcess(), &copy, 0, TRUE, DUPLICATE_SAME_ACCESS)) return NULL;
+    return copy;
+}
+#endif
+
+/* Starts theatrhythm-setup (beside this exe, in its folder) with `arg`, or none for NULL; it writes
+ * where this process does. With `wait`: its exit code once it has ended, -1 when it could not start.
+ * Without, the setup takes over: Windows starts it (0) and Linux replaces this process with it (-1
+ * when it cannot). Design by rcostanza (dead-nation-ps4-recomp). */
+static int run_setup(const char *arg, int wait) {
+    char exe[PATH_CHARS];
+    snprintf(exe, sizeof exe, "%s" SEP SETUP, exe_dir);
+    fflush(NULL);
+#ifdef _WIN32
+    static wchar_t wide_line[PATH_CHARS + 32], wide_dir[PATH_CHARS];
+    char line[PATH_CHARS + 32];
+    snprintf(line, sizeof line, "\"%s\"%s%s", exe, arg ? " " : "", arg ? arg : "");
+    if (!MultiByteToWideChar(CP_UTF8, 0, line, -1, wide_line, PATH_CHARS + 32) ||
+        !MultiByteToWideChar(CP_UTF8, 0, exe_dir, -1, wide_dir, PATH_CHARS)) return -1;
+    STARTUPINFOW startup = {.cb = sizeof startup};
+    HANDLE out = pass_handle(stdout), err = pass_handle(stderr);
+    if (out && err) {
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdOutput = out;
+        startup.hStdError = err;
+    }
+    PROCESS_INFORMATION setup;
+    BOOL started = CreateProcessW(NULL, wide_line, NULL, NULL, out && err, 0, NULL, wide_dir, &startup, &setup);
+    if (out) CloseHandle(out);
+    if (err) CloseHandle(err);
+    if (!started) return -1;
+    AllowSetForegroundWindow(setup.dwProcessId);
+    CloseHandle(setup.hThread);
+    DWORD code = 0;
+    if (wait) {
+        WaitForSingleObject(setup.hProcess, INFINITE);
+        if (!GetExitCodeProcess(setup.hProcess, &code)) code = 1;
+    }
+    CloseHandle(setup.hProcess);
+    return code > 255 ? 1 : (int)code; /* ended from outside (0xC000013A, TerminateProcess): not -1 */
+#else
+    char *setup_argv[] = {exe, (char *)arg, NULL};
+    if (!wait) {
+        if (!chdir(exe_dir)) execv(exe, setup_argv);
+        return -1;
+    }
+    pid_t pid = fork();
+    if (pid < 0) return -1;
+    if (!pid) {
+        if (!chdir(exe_dir)) execv(exe, setup_argv);
+        _exit(127);
+    }
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    if (!WIFEXITED(status)) return 1;
+    return WEXITSTATUS(status) == 127 ? -1 : WEXITSTATUS(status);
+#endif
+}
+
 int launch_from_paths_ini(int *argc, char ***argv) {
     int console = 0;
     for (int i = 1; i < *argc; ++i) console |= !strcmp((*argv)[i], "--console");
@@ -359,12 +438,20 @@ int launch_from_paths_ini(int *argc, char ***argv) {
 
     char ini[PATH_CHARS], message[3 * PATH_CHARS];
     snprintf(ini, sizeof ini, "%s" SEP "paths.ini", exe_dir);
-    if (!read_paths(ini)) {
+    int set_up = read_paths(ini);
+    if (!set_up) {
         user_paths_ini(ini);
-        if (!ini[0] || !read_paths(ini)) {
+        set_up = ini[0] && read_paths(ini);
+    }
+    /* Not set up, or the dump paths.ini names is gone: the setup takes over (its window, or its
+     * questions in this terminal). */
+    if (!set_up || !has_eboot(game)) {
+        fprintf(stderr, "The game is not set up yet, or its game folder is gone: starting " SETUP ".\n");
+        if (run_setup(NULL, 0) < 0) {
             complain("The game is not set up yet.\n\n" RUN_SETUP);
             return 1;
         }
+        exit(0);
     }
     /* THEATRHYTHM_SAVE_DIR overrides save= (a relative one is relative to the exe's folder). */
     const char *save_override = getenv("THEATRHYTHM_SAVE_DIR");
@@ -375,23 +462,25 @@ int launch_from_paths_ini(int *argc, char ***argv) {
     snprintf(boot, sizeof boot, "%s" SEP "game" SEP "boot-linked.bin", exe_dir);
     snprintf(profile, sizeof profile, "%s" SEP "game" SEP "content.bin", exe_dir);
     snprintf(isa, sizeof isa, "%s" SEP "game" SEP "isa-rewrite.bin", exe_dir);
-    /* The image is built by this release's scripts for this exe: after a new release is unpacked
-     * over an old one, the setup has to prepare it again. */
-    char release[PATH_CHARS], prepared_for[256], current[256];
-    snprintf(release, sizeof release, "%s" SEP "game" SEP "release.txt", exe_dir);
-    first_line(release, prepared_for, sizeof prepared_for);
+    /* The image is built by this release's scripts from this dump (src/prepared_stamp.h): when this
+     * is a newer release (a launcher installed an update) or the dump changed, the setup prepares it
+     * again from paths.ini without asking; when it cannot, it has told the player why. */
+    char release[PATH_CHARS], current[256];
     snprintf(release, sizeof release, "%s" SEP "release.txt", exe_dir);
     first_line(release, current, sizeof current);
-    if (!exists(boot) || !exists(profile) || strcmp(prepared_for, current)) {
-        complain("This version of the game is not set up yet.\n\n" RUN_SETUP);
-        return 1;
-    }
-    char eboot[PATH_CHARS];
-    snprintf(eboot, sizeof eboot, "%s" SEP "eboot.bin", game);
-    if (!exists(eboot)) {
-        snprintf(message, sizeof message, "The game folder is gone or has no eboot.bin:\n%s\n\n" RUN_SETUP, game);
-        complain(message);
-        return 1;
+    if (!prepared()) {
+        printf("Launch: preparing the game (" SETUP " --patch)\n");
+        int code = run_setup("--patch", 1);
+        if (code < 0) {
+            complain("Cannot start " SETUP " to prepare the game.\n\nThis folder is incomplete: unpack the whole release again.");
+            return 1;
+        }
+        if (code) return 1;
+        if (!prepared()) {
+            complain("The game could not be prepared.\n\n" RUN_SETUP);
+            return 1;
+        }
+        printf("Launch: prepared %s" SEP "game\n", exe_dir);
     }
     if (!make_dirs(save)) {
         snprintf(message, sizeof message, "Cannot create the save folder:\n%s\n\n" RUN_SETUP, save);

@@ -180,15 +180,36 @@ only from its `DLCPACK` or `PREMIUMEDITION` part. The game folder is never an ad
 it is the extra folder (DLC kept inside the dump), its own `Media`, `sce_module` and `sce_sys` are
 skipped, since mounting `Media` as an add-on would overlay the game's whole StreamingAssets and fill
 the mount table. No release contains a save folder, so
-unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
-more, because `game/` was prepared for another `release.txt`. The command line does the same as the
+unpacking a newer release over the folder keeps it. The command line does the same as the
 window: `theatrhythm-setup.exe --help`. It writes `settings.ini`, `paths.ini` and its other files
 through a `.tmp` file in the same folder that then replaces the old one, so a crash or a full disk
 never leaves a cut-short `settings.ini`.
 
-Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
-that `run.py` would pass (`src/launch.c`). Without a console its output goes to
-`theatrhythm.log` in the save folder's `log/`. `--console` opens a console window instead.
+Once `game/` is complete, the setup writes the stamp `game/release.txt` (`src/prepared_stamp.h`, a
+design from rcostanza's Dead Nation recomp): `release=` and `release.txt`'s first line, then
+`dump=` and `code=` with the size and last write time (Windows' FILETIME, Linux's
+seconds.nanoseconds) of the dump's `eboot.bin` and `Media/Modules/Il2CppUserAssemblies.prx`, the game
+code the 1.04 update replaces. Nothing is hashed at a start, only stat'ed.
+
+Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` (else the per-user copy) and
+builds the command line that `run.py` would pass (`src/launch.c`). Before that it checks the image:
+- No `paths.ini`, or its `game=` has no `eboot.bin`: it starts the setup as a double-click would
+  (Windows: its window, and the launcher exits; Linux: `exec`, so it asks in the terminal or with
+  dialogs) and the player sets the game up there.
+- `game/boot-linked.bin` or `content.bin` missing, or the stamp not the one this release and dump
+  give (a launcher such as Quiver unpacked a new release, the dump was updated or replaced, or the
+  image is from a setup older than the stamp, which wrote `release.txt` alone): it prints
+  `Launch: preparing the game (theatrhythm-setup --patch)` and waits for `theatrhythm-setup --patch`.
+  That runs the same install from the folders `paths.ini` (or its per-user copy) names, keeping
+  `dlc=` and the settings, with no window or questions; its lines go to the launcher's standard
+  handles (passed on, so they show in `run.py`'s or a shell's output). It exits 0 when done; any
+  other code means it has told the player why (on stderr, and in a message box when nobody reads
+  that: no handles on Windows, no terminal on Linux), and the launcher exits 1. A gone extra DLC
+  folder is such an error: the player chooses another in the setup.
+
+Without a console its output goes to `theatrhythm.log` in the save folder's `log/`. `--console`
+opens a console window instead. The preparation runs before the log is opened, so an unattended
+start does not log it.
 
 Such a start also watches the game for a crash. The launcher starts the same command line again as
 a child and waits for it: on Windows in a job that also takes in a restart's process

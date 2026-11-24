@@ -4,9 +4,11 @@
 //
 // With no arguments it opens a window: the game folder (the dump), the save folder, an optional extra
 // DLC folder, whether to skip the logos and the opening movie (settings.ini skip_opening), Install and Exit; after an
-// install it offers a desktop shortcut. Run it again to change a folder, or after unpacking a newer
-// release over the folder.
-// With arguments it installs from the command line:
+// install it offers a desktop shortcut. theatrhythm-fbl.exe opens it when paths.ini is missing or
+// names a game folder that is gone; run it again to change a folder.
+// With --patch (theatrhythm-fbl.exe, when game\ isn't prepared for this release and this dump) it
+// prepares game\ again from paths.ini's folders, without a window or questions: 0 when done.
+// With other arguments it installs from the command line:
 //
 //     theatrhythm-setup.exe --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
 //                           [--dlc <folder>|--no-dlc] [--skip-opening|--play-opening]
@@ -56,6 +58,8 @@ public:
         }
     }
     void out(const std::wstring& s) const { write(out_, s + L"\n"); }
+    // Something reads what is written: a parent's handles or a console.
+    bool attached() const { return out_ && out_ != INVALID_HANDLE_VALUE; }
     void err(const std::wstring& s) const { write(err_, s + L"\n"); }
 
 private:
@@ -90,6 +94,7 @@ constexpr wchar_t kUsage[] =
     L"                movie, or play them again\n"
     L"                (settings.ini skip_opening; default: leave it as it is)\n"
     L"  --shortcut    also write the game's shortcut into this folder, or onto the Desktop\n"
+    L"  --patch       prepare the game again from paths.ini's folders (theatrhythm-fbl.exe runs this)\n"
     L"Sets up the folder this exe is in. With no arguments, opens the setup window.";
 
 int run_cli(const std::vector<std::wstring>& args) {
@@ -141,6 +146,24 @@ int run_cli(const std::vector<std::wstring>& args) {
         return 0;
     } catch (const setup::Error& e) {
         con.err(e.message);
+        return 1;
+    }
+}
+
+// --- --patch ------------------------------------------------------------------------------------
+
+// theatrhythm-fbl.exe found game\ not prepared for this release or this dump: prepares it again from
+// paths.ini's folders, without a window. Its lines go where the game's do; when nobody reads them (a
+// start from Explorer), an error also shows in a message box. 0 when done.
+int run_patch() {
+    Console con;
+    try {
+        setup::patch(setup::exe_folder(), [&](const std::wstring& line) { con.out(line); });
+        return 0;
+    } catch (const setup::Error& e) {
+        con.err(e.message);
+        if (!con.attached())
+            MessageBoxW(nullptr, e.message.c_str(), kTitle, MB_OK | MB_ICONERROR);
         return 1;
     }
 }
@@ -458,6 +481,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     std::vector<std::wstring> args(argv + 1, argv + argc);
     LocalFree(argv);
+    if (args.size() == 1 && args[0] == L"--patch")
+        return run_patch();
     if (!args.empty())
         return run_cli(args);
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);

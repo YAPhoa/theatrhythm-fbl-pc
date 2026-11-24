@@ -5,9 +5,12 @@
 // With no arguments it asks for the game folder (the dump), the save folder, whether to skip the
 // logos and the opening movie (settings.ini skip_opening) and an optional extra DLC folder, installs, and offers
 // a menu entry and to start the game: in the terminal it was started from, or with the desktop's
-// dialogs (SDL: the folder picker and message boxes) when it has none, as from a file manager. Run it
-// again to change either folder, or after unpacking a newer release over the folder.
-// With arguments it installs from the command line:
+// dialogs (SDL: the folder picker and message boxes) when it has none, as from a file manager.
+// theatrhythm-fbl starts it when paths.ini is missing or names a game folder that is gone; run it
+// again to change a folder.
+// With --patch (theatrhythm-fbl, when game/ isn't prepared for this release and this dump) it prepares
+// game/ again from paths.ini's folders, without questions: 0 when done.
+// With other arguments it installs from the command line:
 //
 //     theatrhythm-setup --game <dump or eboot.bin> [--save <folder>] [--copy-saves]
 //                       [--dlc <folder>|--no-dlc] [--skip-opening|--play-opening]
@@ -65,6 +68,7 @@ constexpr wchar_t kUsage[] =
     L"                (settings.ini skip_opening; default: leave it as it is)\n"
     L"  --shortcut    also write the game's desktop entry into this folder, onto the Desktop or into\n"
     L"                the application menu\n"
+    L"  --patch       prepare the game again from paths.ini's folders (theatrhythm-fbl runs this)\n"
     L"Sets up the folder this program is in. With no arguments, asks for the folders.";
 
 fs::path shortcut_folder(const std::wstring& where) {
@@ -123,6 +127,23 @@ int run_cli(const std::vector<std::wstring>& args) {
         return 0;
     } catch (const setup::Error& e) {
         err(e.message);
+        return 1;
+    }
+}
+
+// --- --patch ------------------------------------------------------------------------------------
+
+// theatrhythm-fbl found game/ not prepared for this release or this dump: prepares it again from
+// paths.ini's folders, without questions. Its lines go where the game's do; without a terminal (a
+// start from a file manager), an error also shows in a message box. 0 when done.
+int run_patch() {
+    try {
+        setup::patch(setup::exe_folder(), out);
+        return 0;
+    } catch (const setup::Error& e) {
+        err(e.message);
+        if (!isatty(STDOUT_FILENO) && !isatty(STDERR_FILENO))
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kTitle, setup::narrow(e.message).c_str(), nullptr);
         return 1;
     }
 }
@@ -372,6 +393,8 @@ int main(int argc, char** argv) {
     std::vector<std::wstring> args;
     for (int i = 1; i < argc; ++i)
         args.push_back(setup::widen(argv[i]));
+    if (args.size() == 1 && args[0] == L"--patch")
+        return run_patch();
     if (!args.empty())
         return run_cli(args);
     if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
