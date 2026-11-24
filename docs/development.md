@@ -101,6 +101,8 @@ Files that are the only copy are never rewritten in place: `trophies.dat` is wri
 `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` on Linux), and a save
 backup is copied into `.<dir>.sce_backup.new` before it takes the old backup's place, so a failed copy
 or a crash keeps the last complete one (`make_backup`; `tests/test_services.c`, `tests/test_savedata.c`).
+A save's `icon0.png` larger than 4096x4096 in its IHDR is refused before FFmpeg decodes it
+(`gpu/shim/theatrhythm_png.cpp`; `tests/test_png_decode.cpp`, `ninja -C out/gpu png-decode-test`).
 
 ## Running from the source tree
 
