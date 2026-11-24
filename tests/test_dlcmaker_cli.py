@@ -280,6 +280,20 @@ class ProjectFileTests(unittest.TestCase):
         (self.dlc / 'dlc.lock.json').write_text('{"package": 1')
         self.assertIn('Ex/dlc.lock.json: cannot read: Expecting', self.check())
 
+    def test_paths_outside_the_project_are_refused(self):
+        outside = self.root / 'outside.png'
+        outside.write_bytes(png(4, 4, lambda x, y: (0, 0, 0, 255)))
+        (self.root / 'Other').mkdir()
+        (self.root / 'Other' / 'song.json').write_text('{}')
+        for given in ('../outside.png', str(outside), 'a/../../outside.png'):
+            with self.subTest(logo=given):
+                self.config['series']['logo'] = given
+                self.config['songs'] = ['../Other', 'My Song']
+                (self.dlc / 'dlc.json').write_text(json.dumps(self.config))
+                out = self.check()
+                self.assertIn(f'{given.replace(chr(92), "/")}: a logo must be a file inside Ex', out)
+                self.assertIn('songs: ../Other is not a folder inside Ex', out)
+
     def test_project_files_are_replaced_whole(self):
         song = self.dlc / 'My Song' / 'song.json'
         code, out, err = self.run_exe('set', self.dlc / 'My Song', 'title=First')

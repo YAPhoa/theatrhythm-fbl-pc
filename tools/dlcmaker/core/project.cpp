@@ -31,10 +31,32 @@ Value read_json(const fs::path& path, Issues& issues) {
     return Value::of_map();
 }
 
+// `rel`, a path from a project file, stays inside the folder it is joined to: no root, no drive and no
+// `..` that climbs above it.
+bool stays_inside(const std::string& rel) {
+    fs::path p = to_path(rel);
+    if (p.has_root_name() || p.has_root_directory())
+        return false;
+    int depth = 0;
+    for (const fs::path& part : p) {
+        if (part == "..") {
+            if (--depth < 0)
+                return false;
+        } else if (!part.empty() && part != ".") {
+            ++depth;
+        }
+    }
+    return true;
+}
+
 // `given` (relative to folder) or the first file named <name>.<ext>, else (audio, movie) any file with ext.
 fs::path pick(const fs::path& folder, const std::string& name, const Value& given, const std::vector<std::string>& exts, Issues& issues,
               const std::string& where) {
     if (truthy(given)) {
+        if (!stays_inside(py_str(given))) {
+            issues.error(where, py_str(given) + ": a " + name + " must be a file inside " + name_of(folder) + " (no drive, root or .. above it)");
+            return {};
+        }
         fs::path p = folder / to_path(py_str(given));
         if (!is_file(p)) {
             issues.error(where, py_str(given) + " not found");
@@ -320,7 +342,9 @@ Dlc::Dlc(const fs::path& f, Issues& issues) : folder(f) {
         std::vector<std::string> names;
         for (const Value& n : order.list) {
             names.push_back(py_str(n));
-            if (is_file(folder / to_path(py_str(n)) / "song.json"))
+            if (!stays_inside(py_str(n)))
+                issues.error(where, "songs: " + py_str(n) + " is not a folder inside " + name_of(folder) + " (no drive, root or .. above it)");
+            else if (is_file(folder / to_path(py_str(n)) / "song.json"))
                 first.push_back(folder / to_path(py_str(n)));
         }
         for (const fs::path& p : dirs)
