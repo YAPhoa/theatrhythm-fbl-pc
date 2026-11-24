@@ -252,5 +252,69 @@ class CommandLineTests(unittest.TestCase):
         self.assertEqual(got, self.expected['build'])
 
 
+@unittest.skipUnless(EXE.is_file(), 'needs the DLC maker (bash tools/dlcmaker/app/build.sh)')
+class ProjectFileTests(unittest.TestCase):
+    """Broken or hostile project files: each is a clear error of `check`, never a crash, and the
+    files the DLC maker writes are replaced whole."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.dlc = self.root / 'Ex'
+        self.assertEqual(self.run_exe('new', self.dlc)[0], 0)
+        self.config = json.loads((self.dlc / 'dlc.json').read_text(encoding='utf-8'))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_exe(self, *args):
+        p = subprocess.run([str(EXE), *map(str, args)], capture_output=True, timeout=60)
+        return p.returncode, p.stdout.decode('utf-8').replace('\\', '/'), p.stderr.decode('utf-8')
+
+    def check(self):
+        code, out, err = self.run_exe('check', self.dlc)
+        self.assertEqual(code, 1, out + err)  # an error, not a crash
+        return out
+
+    def test_deeply_nested_json_is_an_error(self):
+        (self.dlc / 'dlc.json').write_text('{"songs": ' + '[' * 100000 + ']' * 100000 + '}')
+        self.assertIn('Ex/dlc.json: cannot read: Nested deeper than 256 levels', self.check())
+
+    def test_json_nested_to_the_limit_is_read(self):
+        self.config['extra'] = json.loads('[' * 255 + ']' * 255)
+        (self.dlc / 'dlc.json').write_text(json.dumps(self.config))
+        self.assertNotIn('dlc.json: cannot read', self.check())
+
+    def test_broken_lock_file_names_itself(self):
+        (self.dlc / 'dlc.lock.json').write_text('{"package": 1')
+        self.assertIn('Ex/dlc.lock.json: cannot read: Expecting', self.check())
+
+    def test_paths_outside_the_project_are_refused(self):
+        outside = self.root / 'outside.png'
+        outside.write_bytes(png(4, 4, lambda x, y: (0, 0, 0, 255)))
+        (self.root / 'Other').mkdir()
+        (self.root / 'Other' / 'song.json').write_text('{}')
+        for given in ('../outside.png', str(outside), 'a/../../outside.png'):
+            with self.subTest(logo=given):
+                self.config['series']['logo'] = given
+                self.config['songs'] = ['../Other', 'My Song']
+                (self.dlc / 'dlc.json').write_text(json.dumps(self.config))
+                out = self.check()
+                self.assertIn(f'{given.replace(chr(92), "/")}: a logo must be a file inside Ex', out)
+                self.assertIn('songs: ../Other is not a folder inside Ex', out)
+
+    def test_project_files_are_replaced_whole(self):
+        song = self.dlc / 'My Song' / 'song.json'
+        code, out, err = self.run_exe('set', self.dlc / 'My Song', 'title=First')
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(json.loads(song.read_text(encoding='utf-8'))['title'], 'First')
+        self.assertEqual(sorted(p.name for p in song.parent.iterdir() if p.name.endswith('.part')), [])
+        # A write that cannot finish (its temp file blocked by a folder) leaves song.json as it was.
+        (song.parent / 'song.json.part').mkdir()
+        code, out, err = self.run_exe('set', self.dlc / 'My Song', 'title=Second')
+        self.assertNotEqual(code, 0, out + err)
+        self.assertEqual(json.loads(song.read_text(encoding='utf-8'))['title'], 'First')
+
+
 if __name__ == '__main__':
     unittest.main()

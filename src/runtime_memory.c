@@ -251,7 +251,11 @@ static size_t save_protections(uintptr_t start, uintptr_t end, ProtRun **runs, s
         if (!VirtualQuery((void *)at,&m,sizeof(m))) win_fail("VirtualQuery",at,0);
         uintptr_t next=(uintptr_t)m.BaseAddress+m.RegionSize;
         if (next>end) next=end;
-        if (count==*capacity) { *capacity=*capacity ? *capacity*2 : 16; *runs=realloc(*runs,*capacity*sizeof(**runs)); }
+        if (count==*capacity) {
+            ProtRun *grown=realloc(*runs,(*capacity ? *capacity*2 : 16)*sizeof(**runs));
+            if (!grown) win_fail("realloc of the protection list",at,next-at);
+            *runs=grown; *capacity=*capacity ? *capacity*2 : 16;
+        }
         (*runs)[count++]=(ProtRun){at,next,m.Protect};
         at=next;
     }

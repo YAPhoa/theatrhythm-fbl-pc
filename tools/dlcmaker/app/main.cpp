@@ -364,10 +364,13 @@ void set_setting(const wchar_t* key, const std::wstring& value) {
     ini[L"workspace"] = strip(text_of(ui.workspace));
     ini[L"game"] = strip(text_of(ui.game));
     ini[L"save"] = strip(text_of(ui.save));
-    std::ofstream out(ini_path(), std::ios::binary);
-    out << "; theatrhythm-dlcmaker.exe settings\n";
+    std::string out = "; theatrhythm-dlcmaker.exe settings\n";
     for (auto& [k, v] : ini)
-        out << narrow(k) << "=" << narrow(v) << "\n";
+        out += narrow(k) + "=" + narrow(v) + "\n";
+    try {
+        dlcmaker::write_file(ini_path(), out); // whole or not at all
+    } catch (const std::exception&) {
+    }
 }
 
 void store_settings() {

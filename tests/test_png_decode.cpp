@@ -31,6 +31,13 @@ int main() {
     assert(!TheatrhythmPng::DecodeRgba(junk, sizeof(junk), bad) && bad.rgba.empty());
     assert(!TheatrhythmPng::DecodeRgba(nullptr, 0, bad));
 
+    // A picture whose IHDR is larger than any save icon is refused before it is decoded.
+    std::vector<unsigned char> huge(kPng, kPng + sizeof(kPng));
+    huge[16] = 0x00, huge[17] = 0x01, huge[18] = 0x00, huge[19] = 0x00; // 65536 wide
+    assert(!TheatrhythmPng::DecodeRgba(huge.data(), huge.size(), bad) && bad.rgba.empty());
+    huge[16] = 0x00, huge[17] = 0x00, huge[18] = 0x00, huge[19] = 0x00; // 0 wide
+    assert(!TheatrhythmPng::DecodeRgba(huge.data(), huge.size(), bad) && bad.rgba.empty());
+
     assert(!TheatrhythmPng::LoadRgba("does/not/exist/icon0.png", bad) && bad.rgba.empty());
     std::puts("png-decode-test: ok");
     return 0;

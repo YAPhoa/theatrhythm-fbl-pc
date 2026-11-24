@@ -75,6 +75,9 @@ Before you start: your decrypted game dump and the game's save folder (both set 
 The template songs are 481 (battle), 508 (event) and 482 (field); `template` in `song.json` picks
 another.
 
+Pictures (jacket, thumbnail, logos) are PNG, JPEG or WebP (WebP needs ffmpeg), at most 16384 pixels
+on a side.
+
 ## Using the app (recommended)
 
 The easiest way is the app, a separate download on the
@@ -173,10 +176,13 @@ My Songs/                     your project folder: any folder of DLCs
 Files are found by name: `audio.*`, `movie.*`, `jacket.*`, `thumbnail.*`, `logo.*` and
 `logo_wide.*`. Without `audio.*` or `movie.*`, the first file with a matching extension is used.
 `song.json` can also name each file. Song folders are read in name order, unless `dlc.json` lists
-`songs`.
+`songs`. A named file or song folder must be inside the folder of the `.json` that names it: a
+drive, a leading `/` or a `..` that climbs above that folder is a Check error. So is a `.json` file nested
+more than 256 levels deep.
 
 `dlc.lock.json` holds the pack, series and song numbers given out on the first build. Keeping it
-keeps your scores and saves attached to the songs across rebuilds.
+keeps your scores and saves attached to the songs across rebuilds. A damaged `dlc.lock.json` is a Check error
+that names it; delete it only if you accept new numbers.
 
 ### dlc.json
 
@@ -432,6 +438,8 @@ dump at build time, so nothing is copied into the project. Set `stage` to the ga
 - **Install says the game is running.** Close it first; the game keeps the pack files open.
 - **A field stage shows only a grid.** That is Auto mode's look. Use Play to see the field.
 - **Check is slow the first time.** It decodes the audio once, into `.dlcmaker-cache/`.
+- **A `.part` file is left in a folder.** A write was cut short (a crash or a full disk): the file
+  it was replacing is still the old, complete one. Delete the `.part` file.
 
 ## How a build maps onto the game
 

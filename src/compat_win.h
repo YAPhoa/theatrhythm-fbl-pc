@@ -71,6 +71,8 @@ int compat_random(void *buffer, size_t size);
 void compat_sleep_ns(uint64_t ns);
 /* rm -rf: 0 when the tree is gone (or never existed). */
 int compat_remove_tree(const char *path);
+/* rename(from, to) that replaces an existing file in one step and returns once it is on disk. */
+int compat_replace_file(const char *from, const char *to);
 /* errno for a Win32 error code. */
 int compat_errno_from_win32(unsigned long error);
 /* User and kernel CPU time of the process (who=0) or calling thread (who=1), microseconds. */

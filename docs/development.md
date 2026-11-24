@@ -98,6 +98,21 @@ the default: `sceKernelIsNeoMode` returns 1, the video out is 3840x2160 and prob
 pixel's footprint in `post_process.frag`: no upscaler, TAA, motion vectors or post-process hooks. The only overlay is the PS4's system UI (save
 list, text entry, trophy notices) and the shader-cache notes (`THEATRHYTHM_SHADER_NOTES=1`).
 
+What the game and its dump hand the runtime is read within its size: libSceAjm's RIFF header of
+an AT9 stream (`parse_riff`) stops at the end of the input, however long a chunk claims to be, and
+skips the pad byte of an odd-sized chunk (`tests/test_mp3.c`, `ninja -C out/gpu mp3-test`).
+`param.sfo` entries count only when their value and their key's NUL are inside the file, with the
+offsets added in 64 bits (`sfo_value` in probe.c; `tests/test_probe.py`).
+A guest path with a `..` component is refused whether it is written with `/` or with `\`, which
+Windows reads as a separator in the host path (`translate` in runtime_file.c; `tests/test_file_paths.c`).
+Files that are the only copy are never rewritten in place: `trophies.dat` is written to
+`trophies.dat.tmp` and moved over it (`runtime_replace_file`: `MoveFileExA` with
+`MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` on Linux), and a save
+backup is copied into `.<dir>.sce_backup.new` before it takes the old backup's place, so a failed copy
+or a crash keeps the last complete one (`make_backup`; `tests/test_services.c`, `tests/test_savedata.c`).
+A save's `icon0.png` larger than 4096x4096 in its IHDR is refused before FFmpeg decodes it
+(`gpu/shim/theatrhythm_png.cpp`; `tests/test_png_decode.cpp`, `ninja -C out/gpu png-decode-test`).
+
 ## Running from the source tree
 
 Set `THEATRHYTHM_GAME_DIR` to your decrypted dump (or pass `--game DIR` each time); `run.py` stops
@@ -160,7 +175,9 @@ skipped, since mounting `Media` as an add-on would overlay the game's whole Stre
 the mount table. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
-window: `theatrhythm-setup.exe --help`.
+window: `theatrhythm-setup.exe --help`. It writes `settings.ini`, `paths.ini` and its other files
+through a `.tmp` file in the same folder that then replaces the old one, so a crash or a full disk
+never leaves a cut-short `settings.ini`.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
 that `run.py` would pass (`src/launch.c`). Without a console its output goes to

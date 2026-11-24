@@ -277,13 +277,23 @@ std::string read_text(const fs::path& p) {
 }
 
 void write_file(const fs::path& p, std::string_view data) {
-    FILE* f = open_file(p, true);
+    fs::path tmp = p;
+    tmp += ".part";
+    FILE* f = open_file(tmp, true);
     if (!f)
         throw Exit(os_error(errno, p));
     bool ok = std::fwrite(data.data(), 1, data.size(), f) == data.size();
     ok = std::fclose(f) == 0 && ok;
-    if (!ok)
+    if (!ok) {
+        remove_file(tmp);
         throw Exit("cannot write " + u8(p));
+    }
+    try {
+        replace_file(tmp, p);
+    } catch (...) {
+        remove_file(tmp);
+        throw;
+    }
 }
 
 void make_dirs(const fs::path& p) {
@@ -320,7 +330,8 @@ bool hard_link(const fs::path& from, const fs::path& to) {
 
 void replace_file(const fs::path& from, const fs::path& to) {
 #ifdef _WIN32
-    if (!MoveFileExW(fs::path(from).make_preferred().c_str(), fs::path(to).make_preferred().c_str(), MOVEFILE_REPLACE_EXISTING))
+    if (!MoveFileExW(fs::path(from).make_preferred().c_str(), fs::path(to).make_preferred().c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
         throw Exit("cannot move " + u8(from) + " to " + u8(to));
 #else
     std::error_code ec;

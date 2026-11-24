@@ -336,7 +336,8 @@ Value read_array(const TypeNode& n, Reader& r, int32_t count) {
         throw ValueError("Negative length read from TypeTree");
     bool align = aligned(n.meta_flag);
     Value out = Value::of_list();
-    out.list.reserve(static_cast<size_t>(count));
+    // No more slots than bytes left: a corrupt count throws at the end of the data, not in reserve.
+    out.list.reserve(std::min(static_cast<size_t>(count), r.d.size() - std::min(r.p, r.d.size())));
     Prim p = prim_of(n.type);
     if (p != Prim::None) {
         for (int32_t k = 0; k < count; ++k)

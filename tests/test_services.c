@@ -583,6 +583,22 @@ int main(void) {
     /* Again: the code the game's unlock callback accepts as done (SCE_NP_TROPHY_ERROR_TROPHY_ALREADY_UNLOCKED). */
     assert(trophy_unlock(1,1,1,NULL)==(int32_t)0x8055160C);
 
+    /* trophies.dat is replaced whole: a second unlock leaves no temp file behind, and a write that
+     * cannot finish (its temp file blocked by a folder) keeps the last complete file. */
+    char test_tmp[520]; snprintf(test_tmp,sizeof(test_tmp),"%s.tmp",test_dat);
+    assert(trophy_unlock(1,1,2,NULL)==0);
+    struct stat saved;
+    assert(stat(test_tmp,&saved)!=0 && stat(test_dat,&saved)==0 && saved.st_size==(off_t)sizeof(trophy_flags));
+    assert(test_mkdir(test_tmp)==0);
+    assert(trophy_unlock(1,1,3,NULL)==0);
+    test_rmdir(test_tmp); /* gone already where remove() takes empty folders too (Linux) */
+    {
+        uint32_t on_disk[4]={0};
+        FILE *fd=fopen(test_dat,"rb"); assert(fd);
+        assert(fread(on_disk,sizeof(on_disk),1,fd)==1); fclose(fd);
+        assert((on_disk[0]&(1u<<2)) && !(on_disk[0]&(1u<<3)));
+    }
+
     /* Verified: persistence across application restart */
     trophy_ready=0;
     memset(trophy_flags,0,sizeof(trophy_flags));

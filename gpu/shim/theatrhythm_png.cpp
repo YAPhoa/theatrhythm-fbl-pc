@@ -13,17 +13,35 @@ namespace TheatrhythmPng {
 
 namespace {
 constexpr int kMaxSide = 4096; // save icons are 228x128; anything far larger is not one
+
+// The size in the PNG's IHDR (the first chunk), so an oversized picture is refused before any
+// pixel is decoded; false when the data does not start like a PNG.
+bool HeaderSize(const unsigned char* data, size_t size, uint32_t& width, uint32_t& height) {
+    static const unsigned char kStart[16] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n',
+                                             0, 0, 0, 13, 'I', 'H', 'D', 'R'};
+    if (size < 24 || std::memcmp(data, kStart, sizeof(kStart))) {
+        return false;
+    }
+    width = uint32_t(data[16]) << 24 | uint32_t(data[17]) << 16 | uint32_t(data[18]) << 8 | data[19];
+    height = uint32_t(data[20]) << 24 | uint32_t(data[21]) << 16 | uint32_t(data[22]) << 8 | data[23];
+    return true;
 }
+} // namespace
 
 bool DecodeRgba(const unsigned char* data, size_t size, Image& out) {
     out = {};
-    if (!data || !size || size > 64u << 20) {
+    uint32_t width = 0, height = 0;
+    if (!data || !size || size > 64u << 20 || !HeaderSize(data, size, width, height) || !width ||
+        !height || width > uint32_t(kMaxSide) || height > uint32_t(kMaxSide)) {
         return false;
     }
     const AVCodec* codec = avcodec_find_decoder(AV_CODEC_ID_PNG);
     AVCodecContext* context = codec ? avcodec_alloc_context3(codec) : nullptr;
     AVPacket* packet = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
+    if (context) {
+        context->max_pixels = int64_t(kMaxSide) * kMaxSide; // a later IHDR or an APNG frame
+    }
     bool ok = context && packet && frame && avcodec_open2(context, codec, nullptr) == 0 &&
               av_new_packet(packet, int(size)) == 0;
     if (ok) {
