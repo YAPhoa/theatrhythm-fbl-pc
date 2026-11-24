@@ -31,6 +31,9 @@ follows rbp wherever it finds no frame data. So the game's `_start` and every gu
 entered with rbp 0 (`runtime_enter_guest`, `enter_on_stack`), and `sceKernelGetModuleInfoForUnwind`
 reports host code as a module without frame data. The walk then ends at the host boundary instead
 of reading host locals as frames (issue #17: the start-up picture's path in the runner's `main`).
+On Windows the main thread and each guest thread keep 64 KiB for the handlers after a stack
+overflow (`SetThreadStackGuarantee`; Windows leaves about a page), so an overflow still gets its
+`Fault:` report.
 
 Guest code follows the SysV ABI, whose leaf functions keep locals in the 128 bytes below rsp (the
 red zone). Windows has no red zone: an exception's frame (CONTEXT plus the thread's live XSAVE
@@ -169,7 +172,11 @@ too, when there is one, since the game reads that one first), and writes `paths.
 and save folders and, when one is chosen, `dlc=`: an extra folder of add-ons. The launcher passes it
 as `--dlc` (`THEATRHYTHM_DLC_DIR` overrides it), and `src/runtime_content.c` lists the folders in
 `<save>/addcont/` and then those in the extra folder (its `<TITLE_ID>/` subfolder when it has one, as
-shadPS4's `addcont` does) whose label the save folder lacks. The game folder is never an add-on: when
+shadPS4's `addcont` does) whose label the save folder lacks. A folder's label is its name, or for a
+dumped add-on with `sce_sys/param.sfo` the label in its `CONTENT_ID` (after the last `-`, so the
+folder may keep the dump's name); a `param.sfo` whose `CATEGORY` is not `ac` (a game or patch dump)
+or that cannot be read leaves the folder out. A name of 17 or more characters without one is used
+only from its `DLCPACK` or `PREMIUMEDITION` part. The game folder is never an add-on: when
 it is the extra folder (DLC kept inside the dump), its own `Media`, `sce_module` and `sce_sys` are
 skipped, since mounting `Media` as an add-on would overlay the game's whole StreamingAssets and fill
 the mount table. No release contains a save folder, so
@@ -191,9 +198,10 @@ F4 end with 0; Ctrl+C on Windows and SIGTERM or SIGINT on Linux are not reported
 `Launcher: the game ended with exit code ...` and what the code means to the log, copies the log to
 `log/crash-<date>-<time>.log` (never deleted: players may delete them) and shows a message box
 naming that file. This
-also catches ends the runtime's fault handler never sees: fast fails (`0xc0000409`), `abort()`,
-heap corruption, a driver ending the process. `THEATRHYTHM_CRASH_WATCH=0` turns the watch off; the
-child runs with it set to 0.
+also catches ends the runtime's fault handler never sees: fast fails (`0xc0000409`), `abort()` on
+Linux, heap corruption, a driver ending the process. On Windows the runtime reports `abort()` (and
+so a C++ `std::terminate`) like a fault: a `Fault: abort()` line, the aborting thread's frames and
+exit code 3. `THEATRHYTHM_CRASH_WATCH=0` turns the watch off; the child runs with it set to 0.
 
 Preparing the game needs Python 3.10 or newer, using only its standard library; releases bundle
 python.org's embeddable Python in `prepare/python`. The CPU rewrite also needs `iced-x86`, which the

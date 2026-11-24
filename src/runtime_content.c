@@ -103,9 +103,9 @@ static ABI int32_t param_int(uint32_t id,int32_t *out) {
     printf("Runtime: AppContent parameter %u = %d\n",id,*out);
     return 0;
 }
-/* Installed add-ons: each folder <user>/addcont/<label>/ is one, then each <extra>/<label>/ whose
- * label <user>/addcont/ lacks; its name is the entitlement label (up to 16 characters). They are
- * listed in name order and mounted as /addcont<index>. */
+/* Installed add-ons: each folder in <user>/addcont/ is one, then each in <extra>/ whose label
+ * <user>/addcont/ lacks (addon_label: the entitlement label, up to 16 characters). They are listed
+ * in label order and mounted as /addcont<index>. */
 #define LABEL_SIZE 17
 #define MAX_ADDONS 64
 typedef struct { char label[LABEL_SIZE]; char folder[700]; } Addon;
@@ -148,6 +148,53 @@ static int game_folder_part(const char *name) {
     for (size_t i=0;i<sizeof(own)/sizeof(*own);++i) if (!strcasecmp(name,own[i])) return 1;
     return 0;
 }
+/* param.sfo in data[0, n): the string value of key, cut to size; 0 when absent or out of bounds.
+ * Offsets add up in 64 bits and the key compare stays inside the data. */
+static int sfo_string(const unsigned char *data,size_t n,const char *key,char *out,size_t size) {
+    if (n<20 || memcmp(data,"\0PSF",4) || !size) return 0;
+    uint32_t keys, values, count;
+    memcpy(&keys,data+8,4); memcpy(&values,data+12,4); memcpy(&count,data+16,4);
+    const size_t key_size=strlen(key)+1;
+    for (uint64_t i=0;i<count && 20+i*16+16<=n;++i) {
+        const unsigned char *e=data+20+i*16;
+        uint16_t key_offset; uint32_t length, offset;
+        memcpy(&key_offset,e,2); memcpy(&length,e+4,4); memcpy(&offset,e+12,4);
+        const uint64_t k=(uint64_t)keys+key_offset, v=(uint64_t)values+offset;
+        if (k>n || n-k<key_size || memcmp(data+k,key,key_size)) continue;
+        if (v>n || length>n-v) return 0;
+        size_t copy=length<size-1 ? length : size-1;
+        memcpy(out,data+v,copy); out[copy]=0;
+        return 1;
+    }
+    return 0;
+}
+/* The entitlement label of the add-on folder <folder> (named name) into label (LABEL_SIZE bytes);
+ * 0: not an add-on. A dumped add-on has sce_sys/param.sfo: its CATEGORY must be "ac" (a game or
+ * patch dump never is an add-on) and the label is its CONTENT_ID after the last '-'
+ * (UP0082-CUSA32853_00-DLCPACK000000000), so its folder may keep any name. Otherwise the folder's
+ * name is the label, or for a longer name (a content ID) the part from DLCPACK or PREMIUMEDITION. */
+static int addon_label(const char *folder,const char *name,char *label) {
+    char path[730];
+    FILE *f=(size_t)snprintf(path,sizeof(path),"%s/sce_sys/param.sfo",folder)<sizeof(path) ? fopen(path,"rb") : NULL;
+    if (f) {
+        enum { SFO_MAX = 65536 };
+        unsigned char *data=malloc(SFO_MAX);
+        size_t n=data ? fread(data,1,SFO_MAX,f) : 0;
+        fclose(f);
+        char category[8]="", id[64]="";
+        const int addon=data && sfo_string(data,n,"CATEGORY",category,sizeof(category)) && !strcmp(category,"ac");
+        if (addon) sfo_string(data,n,"CONTENT_ID",id,sizeof(id));
+        free(data);
+        if (!addon) return 0;
+        const char *dash=strrchr(id,'-');
+        if (dash && dash[1] && strlen(dash+1)<LABEL_SIZE) { strcpy(label,dash+1); return 1; }
+    }
+    if (strlen(name)<LABEL_SIZE) { strcpy(label,name); return 1; }
+    const char *part=strstr(name,"DLCPACK");
+    if (!part) part=strstr(name,"PREMIUMEDITION");
+    if (part && strlen(part)<LABEL_SIZE) { strcpy(label,part); return 1; }
+    return 0;
+}
 /* An extra DLC folder holds the add-ons, or (as shadPS4's addcont folder does) a <title ID>/
  * folder that holds them. game: the game folder, never an add-on itself (in a folder of dumps
  * it is the <title ID>/ folder). */
@@ -166,12 +213,10 @@ static void scan_folder(const char *path) {
     if (!d) return;
     int in_game=same_folder(path,game_dir);
     for (struct dirent *e; addon_count<MAX_ADDONS && (e=readdir(d));) {
-        size_t n=strlen(e->d_name);
-        if (e->d_name[0]=='.' || n>=LABEL_SIZE || find_addon(e->d_name)>=0 || (in_game && game_folder_part(e->d_name))) continue;
+        if (e->d_name[0]=='.' || (in_game && game_folder_part(e->d_name))) continue;
         Addon *a=&addons[addon_count];
         if ((size_t)snprintf(a->folder,sizeof(a->folder),"%s/%s",path,e->d_name)>=sizeof(a->folder) || !is_folder(a->folder) ||
-            same_folder(a->folder,game_dir)) continue;
-        memcpy(a->label,e->d_name,n+1);
+            same_folder(a->folder,game_dir) || !addon_label(a->folder,e->d_name,a->label) || find_addon(a->label)>=0) continue;
         ++addon_count;
     }
     closedir(d);

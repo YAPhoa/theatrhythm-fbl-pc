@@ -17,6 +17,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <tlhelp32.h>
+#include <signal.h>
 #else
 #include <pthread.h>
 #include <dirent.h>
@@ -624,6 +625,29 @@ static int thread_frames(CONTEXT *c, uintptr_t *out, uintptr_t low, uintptr_t hi
     }
     return n;
 }
+/* abort() (std::terminate, a failed host assert): the UCRT raises SIGABRT on the aborting thread
+ * before it fast-fails, which no exception handler sees. Reported as a fault: a Fault: line, the
+ * thread's frames walked live from here (above this frame its stack no longer changes), exit 3. */
+static void fatal_abort(int sig) {
+    (void)sig;
+    if (__atomic_exchange_n(&fatal_reported,1,__ATOMIC_ACQ_REL)) { Sleep(INFINITE); }
+    CONTEXT c;
+    RtlCaptureContext(&c);
+    fprintf(stderr,"Fault: abort() (thread %lu)\n",GetCurrentThreadId());
+    MEMORY_BASIC_INFORMATION info;
+    uintptr_t frames[HANG_FRAMES];
+    int n=0;
+    if (VirtualQuery((void *)(uintptr_t)c.Rsp,&info,sizeof(info)) && info.State==MEM_COMMIT)
+        n=thread_frames(&c,frames,(uintptr_t)c.Rsp,(uintptr_t)info.BaseAddress+info.RegionSize);
+    char where[MAX_PATH+64];
+    for (int i=0;i<n;++i) {
+        describe_address(where,sizeof(where),frames[i]);
+        fprintf(stderr,"  #%d %s\n",i,where);
+    }
+    if (isa_table) isa_rewrite_report(isa_table,stderr);
+    fflush(NULL);
+    TerminateProcess(GetCurrentProcess(),3);
+}
 /* Every other thread: name, tid, CPU time and frames, one line each. A thread is suspended while
  * its registers and stack are copied (copy_stack), then walked on the copy. */
 static void dump_threads(void) {
@@ -984,8 +1008,13 @@ int main(int argc, char **argv) {
     theatrhythm_gpu_register_kernel();
 #ifdef _WIN32
     SYSTEM_INFO system_info; GetSystemInfo(&system_info); page_size = system_info.dwPageSize;
+    /* 64 KiB left for the handlers after a stack overflow (Windows keeps about a page), enough to
+     * print the fault report; guest threads ask for the same (runtime_thread.c, host_start). */
+    ULONG stack_guarantee = 64 << 10;
+    SetThreadStackGuarantee(&stack_guarantee);
     AddVectoredExceptionHandler(1, vectored_fault);
     SetUnhandledExceptionFilter(unhandled_fault);
+    signal(SIGABRT, fatal_abort);
     if (getenv("THEATRHYTHM_STRICT_HANDLES")) {
         PROCESS_MITIGATION_STRICT_HANDLE_CHECK_POLICY strict={0};
         strict.RaiseExceptionOnInvalidHandleReference=1;

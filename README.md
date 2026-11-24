@@ -104,7 +104,8 @@ a logo, and **Options** skips the movie once you have watched it through one tim
 **DLC you already keep elsewhere**, for example for shadPS4, doesn't need a second copy: choose that
 folder as the **extra DLC folder** in setup (optional; on Linux setup asks, or pass `--dlc <folder>`).
 shadPS4's own `addcont` folder works as it is, with its `CUSA32853` folder inside, and so does the
-game folder itself when you keep the DLC folders inside the dump. The game reads
+game folder itself when you keep the DLC folders inside the dump, or a folder of DLC dumps under
+their own names. The game reads
 DLC from there as well as from `addcont` in your save folder, and never writes to it. If the same
 DLC is in both, the save folder's copy is used. Custom songs from dlcmaker still go into the save
 folder's `addcont`.
@@ -153,7 +154,9 @@ The game's own DLC works from a decrypted dump of DLC you own. Each add-on is on
    the release folder).
 3. Copy each DLC into it as a folder of its own, with `dlcparam.json` directly inside. Name the
    folder after the DLC's label, the part of its content ID after the last `-`. Any name of up to
-   16 characters works; longer ones are skipped.
+   16 characters works. A dumped DLC with its `sce_sys/param.sfo` can keep its dump folder's name
+   (for example its whole content ID): the game reads the label from that file. A game or update
+   dump put here by mistake is skipped.
 4. Start the game: it finds the DLC at boot.
 
 To remove a DLC, delete its folder. Custom song packs from [dlcmaker](tools/dlcmaker/README.md) go in

@@ -1435,8 +1435,9 @@ struct PipelineCache::WarmStage {
     vk::ShaderModule module{};
     // GPU thread, from the merge on.
     bool merged = false;
-    bool module_kept = false;           ///< the module now belongs to a Program
-    const Shader::Info* info = nullptr; ///< null: not usable (read failed or conflict)
+    bool module_kept = false;                ///< the module now belongs to a Program
+    const Shader::Info* info = nullptr;      ///< info_template for the build; null: not usable
+    const Shader::Info* live_info = nullptr; ///< Program::info, published with the pipeline
     vk::ShaderModule result{};
 
     ~WarmStage() {
@@ -1462,6 +1463,7 @@ struct PipelineCache::BackgroundWarmup {
         ComputePipelineKey compute_key{};
         std::unique_ptr<GraphicsPipeline> graphics;
         std::unique_ptr<ComputePipeline> compute;
+        std::array<const Shader::Info*, MaxShaderStages> live_infos{};
     };
 
     std::unordered_map<u64, std::shared_ptr<WarmStage>> stages; ///< read job only
@@ -1585,23 +1587,31 @@ void PipelineCache::ReadWarmEntry(BackgroundWarmup& warm, std::vector<u8>&& data
     warm.read.Push(std::move(entry));
 }
 
+// theatrhythm: pool threads build from the program's info_template, since the GPU thread rewrites
+// Program::info on every draw (RefreshFlatBuf); PumpWarmUp points the pipeline at the live info
+// when it publishes it.
 bool PipelineCache::MergeWarmStage(WarmStage& stage) {
     stage.merged = true;
     const u64 hash = stage.program->info.pgm_hash;
     const auto it_pgm = program_cache.find(hash);
     if (it_pgm == program_cache.end()) {
         Program* program = stage.program.get();
+        program->info_template = std::make_unique<Shader::Info>(program->info);
         program->InsertPermut(stage.module, std::move(stage.spec), stage.perm_idx);
         program_cache.emplace(hash, std::move(stage.program));
         stage.module_kept = true;
         stage.result = stage.module;
-        stage.info = &program->info;
+        stage.info = program->info_template.get();
+        stage.live_info = &program->info;
         return true;
     }
     // The game already uses this shader: its permutations are the ones that count.
     Program& program = *it_pgm->second;
     if (!program.pending.empty()) {
         return false; // the game is compiling a permutation that takes the next index
+    }
+    if (!program.info_template) {
+        program.info_template = std::make_unique<Shader::Info>(program.info);
     }
     const auto it = std::ranges::find(program.modules, stage.spec, &Program::Module::spec);
     if (it != program.modules.end()) {
@@ -1618,7 +1628,8 @@ bool PipelineCache::MergeWarmStage(WarmStage& stage) {
         stage.module_kept = true;
         stage.result = stage.module;
     }
-    stage.info = &program.info;
+    stage.info = program.info_template.get();
+    stage.live_info = &program.info;
     return true;
 }
 
@@ -1643,6 +1654,11 @@ void PipelineCache::PumpWarmUp() {
 
     // Built pipelines: the first one ready for a key wins (the game may have compiled it).
     for (auto& built : warm.built.Take(64)) {
+        if (built.graphics) {
+            built.graphics->PublishStages(built.live_infos);
+        } else if (built.compute) {
+            built.compute->PublishStage(*built.live_infos[0]);
+        }
         const bool kept =
             built.graphics
                 ? PublishFirst(graphics_pipelines, built.graphics_key, std::move(built.graphics))
@@ -1669,6 +1685,7 @@ void PipelineCache::PumpWarmUp() {
             continue;
         }
         std::array<const Shader::Info*, MaxShaderStages> infos{};
+        std::array<const Shader::Info*, MaxShaderStages> live_infos{};
         std::array<vk::ShaderModule, MaxShaderStages> modules{};
         std::optional<Shader::Gcn::FetchShaderData> fetch;
         bool usable = true;
@@ -1684,6 +1701,7 @@ void PipelineCache::PumpWarmUp() {
                 }
                 usable = stage.info != nullptr;
                 infos[i] = stage.info;
+                live_infos[i] = stage.live_info;
                 modules[i] = stage.result;
                 fetch = stage.fetch; // the blocking load keeps the last stage's too
             }
@@ -1695,12 +1713,12 @@ void PipelineCache::PumpWarmUp() {
         ++warm.submitted;
         warm.pool->Push([this, &warm, queued = std::chrono::steady_clock::now(),
                           compute = entry.compute, graphics_key = entry.graphics_key,
-                         compute_key = entry.compute_key, sdata = entry.sdata, infos, modules,
-                         fetch]() mutable {
+                         compute_key = entry.compute_key, sdata = entry.sdata, infos, live_infos,
+                         modules, fetch]() mutable {
             const auto build_started = std::chrono::steady_clock::now();
             warm.build_queue_ns += ElapsedNs(queued);
             SCOPE_EXIT { warm.build_ns += ElapsedNs(build_started); ++warm.completed; };
-            BackgroundWarmup::Built built{graphics_key, compute_key};
+            BackgroundWarmup::Built built{graphics_key, compute_key, {}, {}, live_infos};
             if (compute) {
                 ComputePipeline::SerializationSupport compute_data{};
                 built.compute = std::make_unique<ComputePipeline>(

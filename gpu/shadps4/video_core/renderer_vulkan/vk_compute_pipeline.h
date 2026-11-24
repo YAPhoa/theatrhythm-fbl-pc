@@ -50,6 +50,11 @@ public:
                     vk::ShaderModule module, SerializationSupport& sdata, bool preloading);
     ~ComputePipeline();
 
+    // theatrhythm: switch from the builder's info_template to the live stage data on publication.
+    void PublishStage(const Shader::Info& info) {
+        stages[int(Shader::SwStage::Compute)] = &info;
+    }
+
 private:
     ComputePipelineKey compute_key;
 };

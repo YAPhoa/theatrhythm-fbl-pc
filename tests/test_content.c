@@ -1,6 +1,7 @@
 /* Add-ons: the save folder's addcont/ and an extra DLC folder (shadPS4's addcont, with its title ID
  * folder, or a plain folder of add-ons) are listed together; the save folder's copy of a label wins.
- * The game folder is never an add-on, nor are its own folders when it is the extra DLC folder. */
+ * The game folder is never an add-on, nor are its own folders when it is the extra DLC folder.
+ * A dumped add-on's label comes from its param.sfo; a dump that is not an add-on is left out. */
 #undef NDEBUG /* the checks are asserts; release builds define NDEBUG */
 #include "../src/runtime_content.c"
 #include <assert.h>
@@ -22,6 +23,29 @@ int32_t runtime_module_start(const char *file, uint64_t args, const void *argp, 
 
 static void folder(const char *path) { assert(!mkdir(path,0755) || errno==EEXIST); }
 static void file(const char *path) { FILE *f=fopen(path,"wb"); assert(f); fputs("x",f); fclose(f); }
+/* <dir>/sce_sys/param.sfo with string entries {key, value, ...}, as a dump has; cut: only the
+ * first cut bytes of it (0: all). */
+static void sfo(const char *dir, const char *const *pairs, unsigned count, size_t cut) {
+    unsigned char data[1024]={0};
+    uint32_t keys=20+16*count, key_bytes=0, value_bytes=0, version=0x0101;
+    for (unsigned i=0;i<count;++i) key_bytes+=(uint32_t)strlen(pairs[2*i])+1;
+    const uint32_t values=keys+((key_bytes+3)&~3u);
+    key_bytes=0;
+    for (unsigned i=0;i<count;++i) {
+        unsigned char *e=data+20+16*i;
+        uint16_t key_offset=(uint16_t)key_bytes, format=0x0204;
+        uint32_t length=(uint32_t)strlen(pairs[2*i+1])+1, max=(length+3)&~3u;
+        memcpy(e,&key_offset,2); memcpy(e+2,&format,2); memcpy(e+4,&length,4); memcpy(e+8,&max,4); memcpy(e+12,&value_bytes,4);
+        strcpy((char *)data+keys+key_bytes,pairs[2*i]); key_bytes+=(uint32_t)strlen(pairs[2*i])+1;
+        strcpy((char *)data+values+value_bytes,pairs[2*i+1]); value_bytes+=max;
+    }
+    memcpy(data,"\0PSF",4); memcpy(data+4,&version,4); memcpy(data+8,&keys,4); memcpy(data+12,&values,4); memcpy(data+16,&count,4);
+    char path[700];
+    snprintf(path,sizeof(path),"%s/sce_sys",dir); folder(path);
+    snprintf(path,sizeof(path),"%s/sce_sys/param.sfo",dir);
+    FILE *f=fopen(path,"wb"); assert(f);
+    fwrite(data,1,cut ? cut : values+value_bytes,f); fclose(f);
+}
 
 /* The labels the game is given, comma-separated. */
 static void listed(char *out, size_t size) {
@@ -126,6 +150,40 @@ int main(void) {
     runtime_content_extra_dir(other,NULL,path);
     listed(text,sizeof(text));
     assert(!strcmp(text,"CUSA32853,OTHERDLC,SAVEONLY,SHARED"));
+
+    /* Dumped add-ons keep their folder names: the label is the param.sfo CONTENT_ID's, or a long
+     * name's DLCPACK part. A param.sfo that is not an add-on's ("gp": a patch) or not readable
+     * leaves its folder out; the save folder's SHARED still wins. */
+    snprintf(path,sizeof(path),"%s/dumped",root); folder(path);
+    const char *const dumped[]={"UP0082-CUSA32853_00-DLCPACK000000005","Renamed","UP0082-CUSA32853_00-DLCPACK000000007",
+                                "CUSA32853-patch","BROKEN","SHARED"};
+    for (size_t i=0;i<sizeof(dumped)/sizeof(*dumped);++i) { snprintf(path,sizeof(path),"%s/dumped/%s",root,dumped[i]); folder(path); }
+    const char *const dlc5[]={"CATEGORY","ac","CONTENT_ID","UP0082-CUSA32853_00-DLCPACK000000005"};
+    const char *const dlc6[]={"CONTENT_ID","UP0082-CUSA32853_00-DLCPACK000000006","CATEGORY","ac"};
+    const char *const patch[]={"CATEGORY","gp","CONTENT_ID","UP0082-CUSA32853_00-THEATRHYTHMFBL00"};
+    const char *const shared[]={"CATEGORY","ac","CONTENT_ID","UP0082-CUSA32853_00-SHARED"};
+    snprintf(path,sizeof(path),"%s/dumped/%s",root,dumped[0]); sfo(path,dlc5,2,0);
+    snprintf(path,sizeof(path),"%s/dumped/Renamed",root); sfo(path,dlc6,2,0);
+    snprintf(path,sizeof(path),"%s/dumped/CUSA32853-patch",root); sfo(path,patch,2,0);
+    snprintf(path,sizeof(path),"%s/dumped/BROKEN",root); sfo(path,dlc5,2,20+2*16+20+1); /* header, entries, keys: its values cut off */
+    snprintf(path,sizeof(path),"%s/dumped/SHARED",root); sfo(path,shared,2,0);
+    rescan();
+    snprintf(path,sizeof(path),"%s/dumped",root);
+    runtime_content_extra_dir(path,"CUSA32853",game);
+    listed(text,sizeof(text));
+    assert(!strcmp(text,"DLCPACK000000005,DLCPACK000000006,DLCPACK000000007,SAVEONLY,SHARED"));
+    assert(!addon_mount(0,"DLCPACK000000006",mount) && !strcmp(mount,"/addcont1"));
+    snprintf(path,sizeof(path),"%s/dumped/Renamed",root);
+    assert(!strcmp(mounted[1],path));
+    assert(!addon_mount(0,"SHARED",mount) && !strcmp(mount,"/addcont4"));
+    snprintf(path,sizeof(path),"%s/addcont/SHARED",user_dir);
+    assert(!strcmp(mounted[4],path));
+    for (size_t i=0;i<sizeof(dumped)/sizeof(*dumped);++i) {
+        snprintf(path,sizeof(path),"%s/dumped/%s/sce_sys/param.sfo",root,dumped[i]); remove(path);
+        snprintf(path,sizeof(path),"%s/dumped/%s/sce_sys",root,dumped[i]); rmdir(path);
+        snprintf(path,sizeof(path),"%s/dumped/%s",root,dumped[i]); rmdir(path);
+    }
+    snprintf(path,sizeof(path),"%s/dumped",root); rmdir(path);
 
     const char *const made[]={"dumps/CUSA32853/Media","dumps/CUSA32853/sce_module","dumps/CUSA32853/sce_sys",
                               "dumps/CUSA32853/DLCPACK000000000","dumps/CUSA32853","dumps/Theatrhythm/Media",
