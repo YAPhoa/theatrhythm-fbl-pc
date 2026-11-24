@@ -94,6 +94,8 @@ an AT9 stream (`parse_riff`) stops at the end of the input, however long a chunk
 skips the pad byte of an odd-sized chunk (`tests/test_mp3.c`, `ninja -C out/gpu mp3-test`).
 `param.sfo` entries count only when their value and their key's NUL are inside the file, with the
 offsets added in 64 bits (`sfo_value` in probe.c; `tests/test_probe.py`).
+A guest path with a `..` component is refused whether it is written with `/` or with `\`, which
+Windows reads as a separator in the host path (`translate` in runtime_file.c; `tests/test_file_paths.c`).
 
 ## Running from the source tree
 

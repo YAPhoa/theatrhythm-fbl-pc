@@ -99,14 +99,15 @@ void runtime_file_configure(const char *app0,const char *user) {
         runtime_file_mount(guest,path);
     }
 }
-/* Resolve a guest path to a host path; returns 0 or a host errno. */
+/* Resolve a guest path to a host path; returns 0 or a host errno. A ".." component is refused
+ * with either separator: Windows reads the host path's backslashes as separators too. */
 static int translate(const char *guest,char *out,size_t size) {
     if (!guest || !*guest) return ENOENT;
     char buffer[1024];
     if (guest[0]!='/') snprintf(buffer,sizeof(buffer),"/app0/%s",guest);
     else snprintf(buffer,sizeof(buffer),"%s",guest);
     for (const char *p=buffer;(p=strstr(p,".."));p+=2)
-        if ((p==buffer || p[-1]=='/') && (p[2]==0 || p[2]=='/')) return EACCES;
+        if ((p==buffer || p[-1]=='/' || p[-1]=='\\') && (p[2]==0 || p[2]=='/' || p[2]=='\\')) return EACCES;
     pthread_mutex_lock(&lock);
     size_t best=0; const Mount *m=NULL;
     for (size_t i=0;i<mount_count;++i) {

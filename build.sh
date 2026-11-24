@@ -49,6 +49,7 @@ if [[ ${1:-} == --test ]]; then
     run_test posixsem tests/test_posixsem.c
     run_test net tests/test_net.c "${compat[@]}" "${net[@]}"
     run_test kernel-files tests/test_kernel_files.c "${compat[@]}"
+    run_test file-paths tests/test_file_paths.c "${compat[@]}"
     run_test button-icons tests/test_button_icons.c
     run_test memory tests/test_memory.c "${compat[@]}" "${memory[@]}"
     run_test memory-read-backing tests/test_memory_read_backing.c "${compat[@]}" "${memory[@]}"
