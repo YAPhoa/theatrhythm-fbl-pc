@@ -166,7 +166,9 @@ skipped, since mounting `Media` as an add-on would overlay the game's whole Stre
 the mount table. No release contains a save folder, so
 unpacking a newer release over the folder keeps it. After that, the game asks for the setup once
 more, because `game/` was prepared for another `release.txt`. The command line does the same as the
-window: `theatrhythm-setup.exe --help`.
+window: `theatrhythm-setup.exe --help`. It writes `settings.ini`, `paths.ini` and its other files
+through a `.tmp` file in the same folder that then replaces the old one, so a crash or a full disk
+never leaves a cut-short `settings.ini`.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` and builds the command line
 that `run.py` would pass (`src/launch.c`). Without a console its output goes to

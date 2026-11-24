@@ -13,6 +13,7 @@
 #include <cstdlib>
 #endif
 
+#include <cstdio>
 #include <cwctype>
 #include <fstream>
 #include <iterator>
@@ -84,11 +85,28 @@ std::string read_text(const fs::path& p) {
     return {std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>()};
 }
 
+// Writes `p` through `p`.tmp in the same folder, moved over it once complete: a crash or a full disk
+// keeps the old file (settings.ini is the player's only copy of their settings).
 void write_text(const fs::path& p, const std::string& text) {
-    std::ofstream f(p, std::ios::binary | std::ios::trunc);
-    f.write(text.data(), static_cast<std::streamsize>(text.size()));
-    if (!f)
+    fs::path temp = p;
+    temp += L".tmp";
+    bool ok;
+    {
+        std::ofstream f(temp, std::ios::binary | std::ios::trunc);
+        f.write(text.data(), static_cast<std::streamsize>(text.size()));
+        f.close();
+        ok = !f.fail();
+    }
+#ifdef _WIN32
+    ok = ok && MoveFileExW(temp.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+#else
+    ok = ok && std::rename(temp.c_str(), p.c_str()) == 0;
+#endif
+    if (!ok) {
+        std::error_code ec;
+        fs::remove(temp, ec);
         fail(L"cannot write " + setup::text(p) + L"\nIf the game is running, close it and try again.");
+    }
 }
 
 // --- child processes ----------------------------------------------------------------------------
