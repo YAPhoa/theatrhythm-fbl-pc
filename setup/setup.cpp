@@ -685,6 +685,23 @@ fs::path install(const Options& opt, const Log& log) {
     return exe;
 }
 
+fs::path patch(const fs::path& root, const Log& log) {
+    std::optional<Paths> paths = remembered_paths(root);
+    std::error_code ec;
+    if (!paths || !fs::is_regular_file(paths->game / L"eboot.bin", ec))
+        fail(L"The game is not set up yet, or its game folder is gone. Run " + std::wstring(kSetupExe) + L".");
+    if (!paths->dlc.empty() && !fs::is_directory(paths->dlc, ec))
+        fail(L"The extra DLC folder the game was set up with is gone:\n" + text(paths->dlc) + L"\n\nRun " +
+             kSetupExe + L" to choose another one, or none.");
+    log(L"Preparing the game again from paths.ini: this release or the game folder's files changed");
+    Options opt;
+    opt.root = root;
+    opt.game = paths->game;
+    opt.save = paths->save;
+    opt.dlc = paths->dlc;
+    return install(opt, log);
+}
+
 #ifdef _WIN32
 void create_shortcut(const fs::path& target, const fs::path& lnk) {
     HRESULT init = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);

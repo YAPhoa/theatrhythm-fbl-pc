@@ -40,9 +40,11 @@ using Log = std::function<void(const std::wstring&)>;
 
 #ifdef _WIN32
 constexpr wchar_t kGameExe[] = L"theatrhythm-fbl.exe";
+constexpr wchar_t kSetupExe[] = L"theatrhythm-setup.exe";
 constexpr wchar_t kShortcutName[] = L"Theatrhythm Final Bar Line.lnk";
 #else
 constexpr wchar_t kGameExe[] = L"theatrhythm-fbl";
+constexpr wchar_t kSetupExe[] = L"theatrhythm-setup";
 // A desktop entry (freedesktop.org), in the application menu or on the Desktop.
 constexpr wchar_t kShortcutName[] = L"theatrhythm-fbl.desktop";
 #endif
@@ -82,6 +84,10 @@ bool same_path(const std::filesystem::path& a, const std::filesystem::path& b);
 
 // Sets up opt.root, reporting each step through `log`. Throws Error. Returns the game exe's path.
 std::filesystem::path install(const Options& opt, const Log& log);
+// install() again from the folders paths.ini (or its per-user copy) names, keeping the settings:
+// --patch, which src/launch.c runs when game/ is not prepared for this release and dump. Throws
+// Error when the folder is not set up or a folder it names is gone.
+std::filesystem::path patch(const std::filesystem::path& root, const Log& log);
 
 // Writes a shortcut at `lnk` that starts `target` in its own folder. Throws Error.
 void create_shortcut(const std::filesystem::path& target, const std::filesystem::path& lnk);
