@@ -25,6 +25,8 @@ dump of your own copy of the game (PS4, version 1.00).
   add-on packs that show up in Music Stages next to the game's DLC, on battle, event or field stages.
   It's a separate download on the releases page: `theatrhythm-dlcmaker.exe` (Windows) or
   `theatrhythm-dlcmaker.AppImage` (Linux).
+- **Timing records:** after each scored song, F6 shows when you hit every note, early or late, with
+  your average and spread. The best run of each song is kept to compare against.
 
 ## Supported languages
 
@@ -223,6 +225,12 @@ first; Circle, Esc and Start answer No too). During a song it pauses the song fi
 another of the game's windows or during a scene change: a note says so. Alt+F4 still closes the
 game at once.
 **F10** opens the Display Settings panel.
+**F6** shows the timing of the last song you played for score (not practice, auto play or the
+tutorial): every note on a time line, above the line when you hit it early and below when late, a red
+bar for each Miss, and your average offset and spread. A note says the average as the results come
+up. The best-scoring run of each song, difficulty and play style is kept in `judgements.dat` in your
+save folder, and F6 shows its averages under the graph. Press F6 again to close it; the game goes on
+underneath. This file is separate from the game's save.
 
 Keys are physical positions, so they're the same on AZERTY or QWERTZ keyboards. To change them,
 edit `key_map` and `pad_map` in `settings.ini`, e.g. `key_map=cross=G,cross=Mouse Left`: the first
@@ -253,6 +261,9 @@ push is built and tested by GitHub Actions, and tagging a version publishes a re
 
 GPL-2.0-or-later, see [LICENSE](LICENSE). The loader, runtime and GPU shim are derived from
 SpartanPort by Felipe Prado and contributors (GPL-2.0). The video core and parts of the runtime
-follow [shadPS4](https://github.com/shadps4-emu/shadPS4). Theatrhythm Final Bar Line is a trademark
+follow [shadPS4](https://github.com/shadps4-emu/shadPS4). The timing records (F6) are adapted from
+the judgement recorder and graph that [limen123](https://github.com/limen123) wrote for their fork,
+[theatrhythm-fbl-pc-tffscores-integration](https://github.com/limen123/theatrhythm-fbl-pc-tffscores-integration).
+Theatrhythm Final Bar Line is a trademark
 of Square Enix. This project is not affiliated with or endorsed by Square Enix or Sony Interactive
 Entertainment.

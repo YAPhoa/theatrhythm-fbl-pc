@@ -134,6 +134,9 @@ size_t runtime_judgements_finish(uint32_t score, int new_best, JudgementNote *no
 /* The saved best run's notes and score, if any (returns how many were copied). */
 size_t runtime_judgements_best(uint32_t music, int difficulty, int style, JudgementNote *notes, size_t cap, uint32_t *score);
 void runtime_judgements_summary(const JudgementNote *notes, size_t count, JudgementSummary *out);
+/* The game hooks that feed it (runtime_judgement_hooks.c): stubs written to `stubs` (`size` bytes,
+ * within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_judgement_hooks_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);
