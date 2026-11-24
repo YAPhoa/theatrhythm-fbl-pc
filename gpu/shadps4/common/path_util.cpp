@@ -84,6 +84,16 @@ static std::optional<std::filesystem::path> GetBundleParentDirectory() {
 }
 #endif
 
+// theatrhythm: a folder that cannot be made (read-only drive, a file in the way, no permission)
+// is logged, not thrown: nothing catches a filesystem_error here, so it would abort the game.
+static void CreateDirectories(const fs::path& path) {
+    std::error_code ec;
+    if (!std::filesystem::create_directories(path, ec) && ec) {
+        LOG_WARNING(Common_Filesystem, "theatrhythm: cannot create {}: {} ({})", path, ec.message(),
+                    ec.value());
+    }
+}
+
 // theatrhythm: built on first use, not before main, so a launch that reads its save folder from
 // paths.ini (src/launch.c) can still set THEATRHYTHM_GPU_USER_DIR first.
 static std::unordered_map<PathType, fs::path>& UserPaths() {
@@ -108,14 +118,14 @@ static std::unordered_map<PathType, fs::path>& UserPaths() {
         // theatrhythm: never shadPS4's %APPDATA% folder (an installed shadPS4 owns it); this runs
         // on first use, so the portable folder is created here (run.py and src/launch.c set
         // THEATRHYTHM_GPU_USER_DIR).
-        std::filesystem::create_directories(user_dir);
+        CreateDirectories(user_dir);
 #endif
     }
 
     std::unordered_map<PathType, fs::path> paths;
 
     const auto create_path = [&](PathType shad_path, const fs::path& new_path) {
-        std::filesystem::create_directory(new_path);
+        CreateDirectories(new_path);
         paths.insert_or_assign(shad_path, new_path);
     };
 
