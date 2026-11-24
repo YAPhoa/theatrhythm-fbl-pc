@@ -94,7 +94,8 @@ Linux PC with its own GPU or on a Steam Deck. If you try it there, please report
    seconds and offers a desktop shortcut. Your dump is only read, never changed.
    Tick **Skip the opening movie** to go straight to the title screen: no Final Fantasy 35th
    anniversary, Square Enix and indieszero logos, no opening movie.
-4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut.
+4. Press **Play Game**. Later, start `theatrhythm-fbl.exe` or the shortcut (started before setup,
+   it opens setup).
 
 Run `theatrhythm-setup.exe` again any time to change the game or save folder. It offers to copy your
 saves when the save folder moves. To get the logos and the opening movie back, untick the box and
@@ -130,7 +131,7 @@ Unzip (on Linux, extract) the new release over the old folder and start the game
 nothing else to do. The first start of a new release prepares the game again from your dump, in a
 few seconds and without asking, and then plays. The same happens when your dump changes (for
 example when you update it to 1.04), and with launchers that install updates for you. Your folders,
-saves and settings are kept.
+saves and settings are kept. If the game folder you chose is gone, the setup opens instead.
 
 Setup also remembers your folders outside the release, in `%APPDATA%\Theatrhythm Final Bar Line\paths.ini`
 (Linux: `~/.config/theatrhythm-fbl/paths.ini`). A release unzipped into a new folder starts from

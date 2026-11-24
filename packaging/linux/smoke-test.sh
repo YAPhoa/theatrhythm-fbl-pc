@@ -4,8 +4,9 @@
 # has (python3, the Vulkan loader, the X11/Wayland/audio libraries the release leaves to the host),
 # then checks without a game dump or a GPU:
 #   - the programs find every library (ldd) and start: a missing one or a too-new glibc stops them;
-#   - the game, never set up, says so; theatrhythm-setup rejects a folder that is not a dump, and
-#     with one that looks like a dump runs prepare/run.py through the system python3 to its end;
+#   - the game, never set up, says so and starts the setup; theatrhythm-setup rejects a folder that
+#     is not a dump, and with one that looks like a dump runs prepare/run.py through the system
+#     python3 to its end;
 #   - a set-up folder (paths.ini, game/) starts the game from it, logging to <save>/log, and one
 #     prepared by an older setup has the game run theatrhythm-setup --patch;
 #   - the DLC maker's AppImage starts, its programs find their libraries, and Check passes on a new
@@ -49,12 +50,14 @@ usage=$(./theatrhythm-setup --help 2>&1 || true)
 grep -q 'usage: theatrhythm-setup' <<<"$usage" || fail "theatrhythm-setup --help has no usage: $usage"
 
 work=$(mktemp -d)
-# Not set up: no paths.ini. No terminal (as from a file manager): the message goes to stderr.
+# Not set up: no paths.ini. No terminal (as from a file manager): the game says so on stderr and
+# hands over to the setup, which has no display here to ask with.
 rm -f paths.ini
 status=0
 ./theatrhythm-fbl </dev/null >"$work/unset.log" 2>&1 || status=$?
 grep -q 'The game is not set up yet' "$work/unset.log" || { cat "$work/unset.log"; fail 'no "not set up" message'; }
-[[ $status == 1 ]] || fail "theatrhythm-fbl without paths.ini exited $status"
+grep -q 'No terminal and no display' "$work/unset.log" || { cat "$work/unset.log"; fail 'the game did not start the setup'; }
+[[ $status == 2 ]] || fail "theatrhythm-fbl without paths.ini exited $status"
 status=0
 ./theatrhythm-setup --patch </dev/null >"$work/patch-unset.log" 2>&1 || status=$?
 grep -q 'The game is not set up yet' "$work/patch-unset.log" || { cat "$work/patch-unset.log"; fail 'setup --patch without paths.ini'; }

@@ -338,6 +338,14 @@ static int quiet_exit(unsigned long code) {
 #endif
 }
 
+/* `folder` names a folder with an eboot.bin (the dump). */
+static int has_eboot(const char *folder) {
+    char eboot[PATH_CHARS];
+    if (!folder[0]) return 0;
+    snprintf(eboot, sizeof eboot, "%s" SEP "eboot.bin", folder);
+    return exists(eboot);
+}
+
 /* game/ holds an image prepared by this release from paths.ini's dump (src/prepared_stamp.h). */
 static int prepared(void) {
     return exists(boot) && exists(profile) && theatrhythm_prepared(exe_dir, game);
@@ -430,12 +438,20 @@ int launch_from_paths_ini(int *argc, char ***argv) {
 
     char ini[PATH_CHARS], message[3 * PATH_CHARS];
     snprintf(ini, sizeof ini, "%s" SEP "paths.ini", exe_dir);
-    if (!read_paths(ini)) {
+    int set_up = read_paths(ini);
+    if (!set_up) {
         user_paths_ini(ini);
-        if (!ini[0] || !read_paths(ini)) {
+        set_up = ini[0] && read_paths(ini);
+    }
+    /* Not set up, or the dump paths.ini names is gone: the setup takes over (its window, or its
+     * questions in this terminal). */
+    if (!set_up || !has_eboot(game)) {
+        fprintf(stderr, "The game is not set up yet, or its game folder is gone: starting " SETUP ".\n");
+        if (run_setup(NULL, 0) < 0) {
             complain("The game is not set up yet.\n\n" RUN_SETUP);
             return 1;
         }
+        exit(0);
     }
     /* THEATRHYTHM_SAVE_DIR overrides save= (a relative one is relative to the exe's folder). */
     const char *save_override = getenv("THEATRHYTHM_SAVE_DIR");

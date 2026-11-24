@@ -3,7 +3,7 @@
 #define THEATRHYTHM_LAUNCH_H
 
 /* theatrhythm-fbl started with no boot file (no arguments, or only options): reads paths.ini next to
- * the exe (theatrhythm-setup writes it), has the setup prepare
+ * the exe (theatrhythm-setup writes it; without it the setup is started), has the setup prepare
  * game/ again (--patch) when it was not prepared for this release and dump (src/prepared_stamp.h)
  * and replaces *argc and *argv with
  * <exe> game/boot-linked.bin --content-profile game/content.bin --app0 <game> --user <save>

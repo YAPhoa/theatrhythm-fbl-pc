@@ -160,7 +160,9 @@ code the 1.04 update replaces. Nothing is hashed at a start, only stat'ed.
 
 Started with no arguments, `theatrhythm-fbl.exe` reads `paths.ini` (else the per-user copy) and
 builds the command line that `run.py` would pass (`src/launch.c`). Before that it checks the image:
-- No `paths.ini`: it says the game is not set up yet.
+- No `paths.ini`, or its `game=` has no `eboot.bin`: it starts the setup as a double-click would
+  (Windows: its window, and the launcher exits; Linux: `exec`, so it asks in the terminal or with
+  dialogs) and the player sets the game up there.
 - `game/boot-linked.bin` or `content.bin` missing, or the stamp not the one this release and dump
   give (a launcher such as Quiver unpacked a new release, the dump was updated or replaced, or the
   image is from a setup older than the stamp, which wrote `release.txt` alone): it prints
