@@ -315,6 +315,23 @@ quit event as closing the window, once no save is mounted, backed up or written
 already been added", and an exception through a hook stub ends the game) or when
 `WindowManager.IsOpenableSystemWindow()` says no; a notice says why.
 
+Timing records (F6) come from three hooks in `src/runtime_judgement_hooks.c`, adapted from limen123's
+fork (theatrhythm-fbl-pc-tffscores-integration): `MusicStagePlaySetting::setConfigInfo` keeps the
+setting of the song about to start, `ContextPlaydata::FixedTriggerJudge(5)` (the other two overloads
+call it) records each note the game judges, and `MusicResultTitlePartsMain::get_needUpdateBestScore`
+ends the run as the results come up. That hook calls the game's own function through a copy of its
+moved entry (`emit_original`), then reads the score from the statics of the class the function loads
+50 bytes in (`PLAY_CLASS_LOAD`) and compares it with `BeforePlayData.HighScore`. The setting is read through its getters at
+the first note (`get_MusicID`, `get_MSDifficulty`, `get_MSPlayStyle`; `get_MSPlayType`,
+`get_ReplayMode`, `get_TutorialType` and `get_TimingAdjustmentMode` leave out unscored plays), and
+their patterns pin the field offsets. A retry from the pause menu calls no setter, so a note more
+than 5 s before the latest one starts a new run. FixedTriggerJudge judges a hold's start together
+with its end when the start was never hit (its call to itself, told apart by the hook's return
+address): such notes count as untimed. `src/runtime_judgements.c` keeps the run and writes the best
+one of each song, difficulty and style to `<user>/judgements.dat` through a temporary file
+(`tests/test_judgements.c`). The overlay draws the graph (`TimingBox`). Nothing touches the game's
+saves.
+
 Scripted input for automated runs: `THEATRHYTHM_PAD_FILE` (held buttons and stick values, re-read
 when the file changes), `THEATRHYTHM_PAD_RECORD` (F9 records the pad) and `THEATRHYTHM_PAD_REPLAY`
 (see `src/runtime_pad.c`).

@@ -113,6 +113,34 @@ int runtime_exit_prompt_install(unsigned char *image, uint64_t module_base, unsi
 const char *runtime_exit_prompt_translation(const char *term);
 /* 1 while the exit prompt's window is open (the pad turns Options into Circle there: No). */
 int runtime_exit_prompt_open(void);
+/* Timing records (runtime_judgements.c, after limen123's fork): each note of a scored song, its
+ * judgement and how early (negative) or late it was hit, and the best run per song, difficulty and
+ * play style in one file. Judges follow the game's own order; a Miss has no offset, and an untimed
+ * note (judged with another, not hit) counts only in the judge totals. */
+enum { JUDGE_CRITICAL=1, JUDGE_GREAT, JUDGE_GOOD, JUDGE_BAD, JUDGE_MISS };
+enum { JUDGE_RAINBOW=1, JUDGE_UNTIMED=2, JUDGEMENT_NOTES=4096 };
+typedef struct { int32_t target_ms, offset_ms; uint8_t judge, lane; uint16_t flags; } JudgementNote;
+typedef struct {
+    uint32_t notes, timed, early, late, judges[JUDGE_MISS+1];
+    float mean_ms, deviation_ms; /* over the timed hits; deviation: sample standard deviation */
+} JudgementSummary;
+/* The records file (<user>/judgements.dat); an empty path keeps no records. */
+void runtime_judgements_configure(const char *path);
+/* A scored run starts (music 0: an unscored one, which records nothing). */
+void runtime_judgements_begin(uint32_t music, int difficulty, int style);
+void runtime_judgements_record(int32_t target_ms, int32_t offset_ms, int judge, int lane, unsigned flags);
+/* 1 between begin and finish; the latest timed note's target (INT32_MIN: none yet). */
+int runtime_judgements_recording(void);
+int32_t runtime_judgements_last_target(void);
+/* The run ends: its notes into `notes` (at most `cap`), saved as the best when `new_best`; returns the
+ * run's note count (0: no run open). */
+size_t runtime_judgements_finish(uint32_t score, int new_best, JudgementNote *notes, size_t cap);
+/* The saved best run's notes and score, if any (returns how many were copied). */
+size_t runtime_judgements_best(uint32_t music, int difficulty, int style, JudgementNote *notes, size_t cap, uint32_t *score);
+void runtime_judgements_summary(const JudgementNote *notes, size_t count, JudgementSummary *out);
+/* The game hooks that feed it (runtime_judgement_hooks.c): stubs written to `stubs` (`size` bytes,
+ * within rel32 reach of the image, which is still writable). 0 when installed. */
+int runtime_judgement_hooks_install(unsigned char *image, uint64_t module_base, unsigned char *stubs, size_t size);
 /* 1 while a save is mounted, backed up or written (runtime_savedata.c). */
 int runtime_savedata_busy(void);
 const char *runtime_import_name(const char *name);

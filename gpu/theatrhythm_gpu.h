@@ -117,6 +117,24 @@ void theatrhythm_gpu_notice(const char *text, int milliseconds);
  * for the runtime's call: id, description and PNG icon. */
 void theatrhythm_gpu_toast_trophy(int id, const char *title, const char *detail, const unsigned char *png,
                                  uint64_t png_size);
+/* The last scored song's timing (src/runtime_judgement_hooks.c), shown by F6: each note's target
+ * time and offset in ms (negative: early), judge (1 Critical, 2 Great, 3 Good, 4 Bad, 5 Miss) and
+ * flags (1 Rainbow, 2 untimed), and the saved best run of the same song, difficulty and style. Any
+ * thread; the overlay copies it. */
+typedef struct { int32_t target_ms, offset_ms; uint8_t judge, lane; uint16_t flags; } TheatrhythmTimingNote;
+typedef struct {
+    const char *title;
+    uint32_t music;
+    int difficulty, style; /* 0 Basic .. 3 Supreme; 0 Standard, 1 Simple, 2 Pair */
+    uint32_t score;
+    int new_best;
+    const TheatrhythmTimingNote *notes;
+    uint32_t count;
+    uint32_t best_score;
+    const TheatrhythmTimingNote *best;
+    uint32_t best_count;
+} TheatrhythmTiming;
+void theatrhythm_gpu_timing(const TheatrhythmTiming *timing);
 #ifdef __cplusplus
 }
 #endif

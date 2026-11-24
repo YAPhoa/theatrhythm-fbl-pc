@@ -44,6 +44,7 @@ if [[ ${1:-} == --test ]]; then
     run_test services tests/test_services.c "${compat[@]}"
     run_test savedata tests/test_savedata.c "${compat[@]}"
     run_test content tests/test_content.c "${compat[@]}"
+    run_test judgements tests/test_judgements.c "${compat[@]}" -lm
     run_test eventflag tests/test_eventflag.c
     run_test threadcalls tests/test_threadcalls.c "${compat[@]}"
     run_test posixsem tests/test_posixsem.c

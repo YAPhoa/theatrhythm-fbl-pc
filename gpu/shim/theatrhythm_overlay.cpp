@@ -109,6 +109,18 @@ std::atomic<bool> display_open{false};
 std::atomic<bool> exit_requested{false}; // F4: the game shows "Exit the game?" (runtime_exit_prompt.c)
 int display_row = 0;
 bool display_dirty = false;
+// The last scored song's timing (F6; theatrhythm_gpu_timing from src/runtime_judgement_hooks.c),
+// guarded by timing_mutex. The panel takes no input: the game goes on under it.
+struct TimingRun {
+    std::string title;
+    u32 music = 0, score = 0, best_score = 0;
+    int difficulty = 0, style = 0;
+    bool new_best = false;
+    std::vector<TheatrhythmTimingNote> notes, best;
+};
+std::mutex timing_mutex;
+TimingRun timing_run;
+std::atomic<bool> timing_have{false}, timing_open{false};
 enum DisplayRow : int { RowMode, RowResolution, RowMonitor, RowVsync, RowFps, RowQueued, RowAnisotropy, RowRender, RowCount };
 
 // The colours of the game's own settings pages (Settings > MS Settings).
@@ -542,6 +554,134 @@ void DisplaySettingsBox() {
     ImGui::PopStyleVar();
 }
 
+// What a run's timed hits add up to (as runtime_judgements_summary): the mean offset, its sample
+// standard deviation, early and late counts, and how many of each judge.
+struct TimingSummary {
+    u32 timed = 0, early = 0, late = 0, judges[6] = {};
+    float mean = 0.0f, deviation = 0.0f;
+};
+bool TimedHit(const TheatrhythmTimingNote& n) {
+    return n.judge >= 1 && n.judge <= 4 && !(n.flags & 2);
+}
+TimingSummary Summarize(const std::vector<TheatrhythmTimingNote>& notes) {
+    TimingSummary s;
+    double sum = 0.0;
+    for (const auto& n : notes) {
+        if (n.judge <= 5) {
+            ++s.judges[n.judge];
+        }
+        if (TimedHit(n)) {
+            ++s.timed;
+            sum += n.offset_ms;
+            s.early += n.offset_ms < 0;
+            s.late += n.offset_ms > 0;
+        }
+    }
+    if (!s.timed) {
+        return s;
+    }
+    const double mean = sum / s.timed;
+    double spread = 0.0;
+    for (const auto& n : notes) {
+        if (TimedHit(n)) {
+            spread += (n.offset_ms - mean) * (n.offset_ms - mean);
+        }
+    }
+    s.mean = float(mean);
+    s.deviation = s.timed > 1 ? float(std::sqrt(spread / (s.timed - 1))) : 0.0f;
+    return s;
+}
+
+ImU32 JudgeColor(const TheatrhythmTimingNote& n) {
+    switch (n.judge) {
+    case 1: return n.flags & 1 ? IM_COL32(0xff, 0xff, 0xff, 0xff) : IM_COL32(0xff, 0xd7, 0x00, 0xff); // Rainbow / Critical
+    case 2: return IM_COL32(0xff, 0x8c, 0x00, 0xff);                                                  // Great
+    case 3: return IM_COL32(0x32, 0xcd, 0x32, 0xff);                                                  // Good
+    case 4: return IM_COL32(0x93, 0x70, 0xdb, 0xff);                                                  // Bad
+    default: return IM_COL32(0xee, 0x22, 0x33, 0xff);                                                 // Miss
+    }
+}
+
+// F6: the last scored song's notes on a time line, each hit a dot above the centre line when early
+// and below when late (±120 ms at the edges), each Miss a red bar; under it the averages, and those
+// of the saved best run of the same song, difficulty and style. After the graph of limen123's fork.
+void TimingBox() {
+    std::scoped_lock lock{timing_mutex};
+    const TimingRun& run = timing_run;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float px = viewport->Size.y / 1080.0f;
+    const ImVec2 size(std::min(viewport->Size.x - 48.0f * px, 1240.0f * px), 470.0f * px);
+    ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + viewport->Size.y - 36.0f * px),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.92f);
+    ImGui::Begin("##timing", nullptr,
+                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
+                     ImGuiWindowFlags_NoFocusOnAppearing);
+    static constexpr const char* kDifficulties[] = {"Basic", "Expert", "Ultimate", "Supreme"};
+    static constexpr const char* kStyles[] = {"Standard", "Simple", "Pair"};
+    const char* difficulty = run.difficulty >= 0 && run.difficulty < 4 ? kDifficulties[run.difficulty] : "?";
+    const char* style = run.style >= 0 && run.style < 3 ? kStyles[run.style] : "?";
+    ImGui::SetWindowFontScale(1.25f);
+    ImGui::TextUnformatted(run.title.empty() ? "Timing" : run.title.c_str());
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::SameLine();
+    ImGui::TextColored(Ink::Muted, "  %s, %s   score %u%s", difficulty, style, run.score, run.new_best ? "  (new best)" : "");
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 at = ImGui::GetCursorScreenPos();
+    const float w = ImGui::GetContentRegionAvail().x, h = 300.0f * px;
+    const ImVec2 a(at.x, at.y + 6.0f * px), b(at.x + w, at.y + 6.0f * px + h);
+    dl->AddRectFilled(a, b, IM_COL32(0x0b, 0x0e, 0x16, 0xff), 8.0f * px);
+    const float mid = (a.y + b.y) * 0.5f, reach = h * 0.5f - 10.0f * px;
+    auto y_of = [&](float ms) { return mid + std::clamp(ms, -120.0f, 120.0f) / 120.0f * reach; };
+    for (const float ms : {-100.0f, -50.0f, 50.0f, 100.0f}) {
+        for (float x = a.x + 8.0f * px; x < b.x - 8.0f * px; x += 14.0f * px) {
+            dl->AddLine(ImVec2(x, y_of(ms)), ImVec2(std::min(x + 7.0f * px, b.x - 8.0f * px), y_of(ms)),
+                        IM_COL32(0x32, 0x40, 0x56, 0xc8), 1.0f);
+        }
+    }
+    dl->AddLine(ImVec2(a.x, mid), ImVec2(b.x, mid), IM_COL32(0x52, 0x64, 0x80, 0xff), 2.0f * px);
+    dl->AddText(ImVec2(a.x + 10.0f * px, a.y + 6.0f * px), IM_COL32(0xff, 0x45, 0x00, 0xff), "EARLY");
+    dl->AddText(ImVec2(a.x + 10.0f * px, b.y - ImGui::GetFontSize() - 6.0f * px), IM_COL32(0x1e, 0x90, 0xff, 0xff), "LATE");
+    const float label = ImGui::GetFontSize() * 0.5f;
+    dl->AddText(ImVec2(b.x - 70.0f * px, y_of(-100.0f) - label), IM_COL32(0x60, 0x70, 0x88, 0xff), "100 ms");
+    dl->AddText(ImVec2(b.x - 70.0f * px, y_of(-50.0f) - label), IM_COL32(0x60, 0x70, 0x88, 0xff), "50 ms");
+    s32 end = 1000;
+    for (const auto& n : run.notes) {
+        end = std::max(end, n.target_ms + 1000);
+    }
+    const float x0 = a.x + 80.0f * px, x1 = b.x - 80.0f * px;
+    auto x_of = [&](s32 ms) { return x0 + (x1 - x0) * std::clamp(float(ms) / float(end), 0.0f, 1.0f); };
+    for (const auto& n : run.notes) { // misses under the hits
+        if (n.judge == 5) {
+            dl->AddLine(ImVec2(x_of(n.target_ms), mid - reach * 0.8f), ImVec2(x_of(n.target_ms), mid + reach * 0.8f),
+                        IM_COL32(0xee, 0x22, 0x33, 0x90), 1.5f * px);
+        }
+    }
+    for (const auto& n : run.notes) {
+        if (TimedHit(n)) {
+            dl->AddCircleFilled(ImVec2(x_of(n.target_ms), y_of(float(n.offset_ms))), 2.6f * px, JudgeColor(n));
+        }
+    }
+    ImGui::Dummy(ImVec2(w, h + 14.0f * px));
+
+    const TimingSummary s = Summarize(run.notes);
+    ImGui::Text("Average %+.1f ms   spread %.1f ms   early %u   late %u", s.mean, s.deviation, s.early, s.late);
+    ImGui::SameLine();
+    ImGui::TextColored(Ink::Muted, "   Critical %u  Great %u  Good %u  Bad %u  Miss %u", s.judges[1], s.judges[2],
+                       s.judges[3], s.judges[4], s.judges[5]);
+    if (!run.best.empty()) {
+        const TimingSummary best = Summarize(run.best);
+        ImGui::TextColored(Ink::Muted, "Best run (score %u): average %+.1f ms   spread %.1f ms   early %u   late %u",
+                           run.best_score, best.mean, best.deviation, best.early, best.late);
+    } else {
+        ImGui::TextColored(Ink::Muted, "No best run saved yet for this song, difficulty and style.");
+    }
+    ImGui::TextColored(Ink::Muted, "F6: close");
+    ImGui::End();
+}
+
 // The panel takes every key and button while it is open (the game sees neutral input).
 bool HandleDisplayEvent(const SDL_Event& event) {
     int move = 0, change = 0;
@@ -865,6 +1005,9 @@ void DrawWindows() {
     if (choice_active) {
         ChoiceBox();
     }
+    if (timing_open && timing_have && !display_open && !choice_active) {
+        TimingBox();
+    }
     if (display_open && !choice_active) {
         DisplaySettingsBox();
     }
@@ -935,6 +1078,14 @@ bool HandleEvent(const SDL_Event& event) {
     if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F4 && !event.key.repeat && !text_entry_active &&
         !(event.key.mod & SDL_KMOD_ALT)) { // Alt+F4 still closes the window at once
         exit_requested = true;
+        return true;
+    }
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F6 && !event.key.repeat && !text_entry_active) {
+        if (timing_have) {
+            timing_open = !timing_open;
+        } else {
+            ShowNotice("No song timed yet: F6 shows a scored song's timing once its results are up", 4000);
+        }
         return true;
     }
     return false;
@@ -1021,7 +1172,8 @@ void NoteSplashFrame(bool picture) {
 bool Visible() {
     const int splash = splash_state;
     return initialized && (splash == SplashShown || splash == SplashFading || loading ||background_total || PrefetchActive() || CompileNoteActive() ||
-                           text_entry_active || choice_active || choice_retiring || NoticeActive() || display_open);
+                           text_entry_active || choice_active || choice_retiring || NoticeActive() || display_open ||
+                           (timing_open && timing_have));
 }
 
 bool CapturesInput() {
@@ -1110,6 +1262,27 @@ extern "C" void theatrhythm_gpu_notice(const char* text, int milliseconds) {
     if (text && text[0]) {
         TheatrhythmOverlay::ShowNotice(text, milliseconds);
     }
+}
+
+// The last scored song's timing, from the runtime (src/runtime_judgement_hooks.c): kept for F6.
+extern "C" void theatrhythm_gpu_timing(const TheatrhythmTiming* timing) {
+    if (!timing) {
+        return;
+    }
+    {
+        std::scoped_lock lock{TheatrhythmOverlay::timing_mutex};
+        auto& run = TheatrhythmOverlay::timing_run;
+        run.title = timing->title ? timing->title : "";
+        run.music = timing->music;
+        run.difficulty = timing->difficulty;
+        run.style = timing->style;
+        run.score = timing->score;
+        run.new_best = timing->new_best != 0;
+        run.notes.assign(timing->notes, timing->notes + (timing->notes ? timing->count : 0));
+        run.best.assign(timing->best, timing->best + (timing->best ? timing->best_count : 0));
+        run.best_score = timing->best_score;
+    }
+    TheatrhythmOverlay::timing_have = true;
 }
 
 // Called by the runtime (src/runtime_services.c) when the game unlocks a trophy: its name as a
