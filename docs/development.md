@@ -82,6 +82,15 @@ each guest instruction that takes a tracking fault. `tests/test_redzone.cpp` (`r
 one per table shape above and a tail call, and checks that their red-zone locals survive the
 fault; an unpatched copy shows the overwrite.
 
+Movies play through shadPS4's AvPlayer on host threads (`Kernel::Thread`,
+`gpu/shim/core/libraries/kernel/threads.h`). Each decoder joins its own handle as it exits, the
+demuxer joins both decoders at the end of the stream and `Stop()` joins all three, so at every
+movie end, stop or skip two threads could join and detach the same `std::thread` at once (undefined
+behaviour; on Windows a "HLE thread: join failed" line). `Join()` now takes the handle out under a
+mutex: exactly one caller joins it (or detaches it, on the thread itself), and every other caller
+waits at most 5 s for the thread's function to return before it goes on. `tests/test_hle_thread.cpp`
+(`hle-thread-test`, run by `build.sh --test`) runs that join pattern a few thousand times.
+
 The renderer draws at the game's own resolution (2160p in PS4 Pro mode with `render_resolution=4k`,
 the default: `sceKernelIsNeoMode` returns 1, the video out is 3840x2160 and probe.c serves
 `boot.config` with `platform-ps4-videoout-width=3840`; or 1080p) and scales the picture to the window
