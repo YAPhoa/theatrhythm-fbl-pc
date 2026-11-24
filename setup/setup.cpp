@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "setup.h"
+#include "../src/prepared_stamp.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -547,10 +548,10 @@ fs::path default_save() {
 
 bool ready(const fs::path& root) {
     std::error_code ec;
-    fs::path stamp = root / L"game" / L"release.txt", release = root / L"release.txt";
     try {
-        return read_paths(root) && fs::is_regular_file(root / kGameExe, ec) && fs::is_regular_file(stamp, ec) &&
-               fs::is_regular_file(release, ec) && read_text(stamp) == read_text(release);
+        std::optional<Paths> paths = read_paths(root);
+        return paths && fs::is_regular_file(root / kGameExe, ec) &&
+               theatrhythm_prepared(narrow(text(root)).c_str(), narrow(text(paths->game)).c_str());
     } catch (const Error&) {
         return false;
     }
@@ -634,7 +635,11 @@ fs::path install(const Options& opt, const Log& log) {
     } else {
         fs::remove(image / L"isa-rewrite.bin", ec);
     }
-    write_text(image / L"release.txt", read_text(root / L"release.txt"));
+    // The stamp the game checks at every start (src/prepared_stamp.h).
+    char stamp[THEATRHYTHM_STAMP_CHARS];
+    if (!theatrhythm_prepared_stamp(narrow(text(root)).c_str(), narrow(text(game)).c_str(), stamp, sizeof stamp))
+        fail(L"Cannot read " + text(root / L"release.txt") + L" or the game folder's eboot.bin." + kIncomplete);
+    write_text(image / L"release.txt", stamp);
     log(L"prepared " + text(image));
 
     fs::path settings = root / L"settings.ini";

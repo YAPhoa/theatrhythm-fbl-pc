@@ -6,7 +6,8 @@
 #   - the programs find every library (ldd) and start: a missing one or a too-new glibc stops them;
 #   - the game, never set up, says so; theatrhythm-setup rejects a folder that is not a dump, and
 #     with one that looks like a dump runs prepare/run.py through the system python3 to its end;
-#   - a set-up folder (paths.ini, game/) starts the game from it, logging to <save>/log;
+#   - a set-up folder (paths.ini, game/) starts the game from it, logging to <save>/log, and one
+#     prepared by an older setup has the game run theatrhythm-setup --patch;
 #   - the DLC maker's AppImage starts, its programs find their libraries, and Check passes on a new
 #     project (decoding its audio with the AppImage's ffmpeg).
 # Usage: smoke-test.sh <unpacked release folder> <theatrhythm-dlcmaker.AppImage>
@@ -54,6 +55,10 @@ status=0
 ./theatrhythm-fbl </dev/null >"$work/unset.log" 2>&1 || status=$?
 grep -q 'The game is not set up yet' "$work/unset.log" || { cat "$work/unset.log"; fail 'no "not set up" message'; }
 [[ $status == 1 ]] || fail "theatrhythm-fbl without paths.ini exited $status"
+status=0
+./theatrhythm-setup --patch </dev/null >"$work/patch-unset.log" 2>&1 || status=$?
+grep -q 'The game is not set up yet' "$work/patch-unset.log" || { cat "$work/patch-unset.log"; fail 'setup --patch without paths.ini'; }
+[[ $status == 1 ]] || fail "theatrhythm-setup --patch without paths.ini exited $status"
 
 # A folder that is not a dump, then one that has the files the setup looks for (empty, so the
 # preparation itself fails, in python3).
@@ -76,12 +81,21 @@ grep -q '^  ' "$work/setup-dump.log" || fail "no output of prepare/run.py reache
 [[ ! -e paths.ini ]] || fail 'a failed setup wrote paths.ini'
 
 # Set up by hand: the game starts from paths.ini and logs to <save>/log (no terminal). The boot file
-# is not a real one, so it stops there.
+# is not a real one, so it stops there. game/release.txt is the stamp src/prepared_stamp.h checks.
 mkdir -p game
 printf 'not a boot file' >game/boot-linked.bin
 : >game/content.bin
-cp release.txt game/release.txt
 printf '[paths]\ngame=%s\nsave=%s\n' "$work/dump" "$work/save" >paths.ini
+python3 - "$work/dump" >game/release.txt <<'EOF' || fail 'could not write the stamp'
+import os, sys
+def stamp(path):
+    st = os.stat(path)
+    return f'{st.st_size} {st.st_mtime_ns // 10**9}.{st.st_mtime_ns % 10**9:09d}'
+release = open('release.txt', encoding='utf-8').readline().rstrip('\r\n')
+print(f'release={release}')
+print('dump=' + stamp(os.path.join(sys.argv[1], 'eboot.bin')))
+print('code=' + stamp(os.path.join(sys.argv[1], 'Media', 'Modules', 'Il2CppUserAssemblies.prx')))
+EOF
 status=0
 ./theatrhythm-fbl </dev/null >"$work/launch.out" 2>&1 || status=$?
 log=$work/save/log/theatrhythm.log
@@ -89,6 +103,20 @@ log=$work/save/log/theatrhythm.log
 cat "$log"
 grep -q "Launch: game $work/dump" "$log" || fail 'the game did not start from paths.ini'
 (( status != 0 && status < 128 )) || fail "theatrhythm-fbl exited $status on a bad boot file (0 or a signal)"
+! grep -q 'Launch: preparing' "$log" "$work/launch.out" || fail 'the game prepared an image whose stamp matches'
+
+# An image of an older setup (game/release.txt is release.txt itself): the game has the setup prepare
+# it again (--patch) from paths.ini, without asking. The dump's files are empty, so that fails, the
+# setup says why and the game does not start.
+cp release.txt game/release.txt
+status=0
+./theatrhythm-fbl </dev/null >"$work/patch.out" 2>&1 || status=$?
+cat "$work/patch.out"
+grep -q 'Launch: preparing the game (theatrhythm-setup --patch)' "$work/patch.out" || fail 'the game did not run setup --patch'
+grep -q 'Preparing the game again from paths.ini' "$work/patch.out" || fail "setup --patch's lines did not reach the game's output"
+grep -q 'Preparing the game failed (exit code' "$work/patch.out" || fail 'setup --patch did not run the preparation'
+! grep -q 'Launch: game' "$work/patch.out" || fail 'the game started without a prepared image'
+[[ $status == 1 ]] || fail "theatrhythm-fbl with a failed --patch exited $status"
 rm -rf game paths.ini
 
 # The DLC maker, its own download: the AppImage starts (--help: no display here, so not its window; and

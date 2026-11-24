@@ -19,7 +19,7 @@ start theatrhythm-fbl.exe or the desktop shortcut it offers.
 
     theatrhythm-fbl.exe, theatrhythm-setup.exe (debug info stripped), the DLLs the game needs
                     (from MSYS2 CLANG64)
-    release.txt     this release; the setup stamps the image it prepares with it (src/launch.c)
+    release.txt     this release; the setup stamps the image it prepares with it (src/prepared_stamp.h)
     README.txt, LICENSE.txt
     prepare/        run.py, scripts/, the patch assets and settings.example.ini, run by the setup;
                     prepare/python/ holds Python for it when --python names the python.org
@@ -103,7 +103,7 @@ eboot.bin, sce_module, sce_sys and Media. No game files are included.
 2. Press Play Game, or later start theatrhythm-fbl.exe or the shortcut.
 
 Run theatrhythm-setup.exe again to change the game or save folder. After unpacking a newer release
-over this folder, run it once more: it keeps your folders and settings.
+over this folder, just start the game: it prepares itself again, keeping your folders and settings.
 
 Custom songs: the DLC maker, a separate download on the releases page, turns your own music,
 charts and art into add-on packs and installs them into your save folder. How to use it:
@@ -131,7 +131,7 @@ eboot.bin, sce_module, sce_sys and Media. No game files are included.
 2. Start the game from the menu entry, or run ./theatrhythm-fbl.
 
 Run theatrhythm-setup again to change the game or save folder. After unpacking a newer release
-over this folder, run it once more: it keeps your folders and settings.
+over this folder, just start the game: it prepares itself again, keeping your folders and settings.
 
 Custom songs: the DLC maker, a separate download on the releases page, turns your own music,
 charts and art into add-on packs and installs them into your save folder. How to use it:
@@ -284,7 +284,7 @@ def ico_png(ico, size=256):
 def release_name(product='theatrhythm-fbl-pc'):
     """<product>-<commit> (v1.0.6, or v1.0.6-3-g1a2b3c4 after the tag), or -<commit>-dirty-<date>-<time>
     for uncommitted work: what release.txt and the zip are named after. Two releases from one dirty
-    tree differ by the packaging time, so the launcher asks for the setup again after either is
+    tree differ by the packaging time, so the game prepares itself again after either is
     unpacked; a commit names its release by itself."""
     def git(*args):
         return subprocess.run(['git', *args], cwd=PORT, capture_output=True, text=True).stdout.strip()

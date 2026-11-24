@@ -73,7 +73,8 @@ std::optional<Paths> remembered_paths(const std::filesystem::path& root);
 // the folder keeps the saves.
 std::filesystem::path default_save();
 // True when `root` is set up for its release: paths.ini names both folders and game/ was prepared
-// for this release.txt (what src/launch.c checks before it starts the game).
+// for this release.txt and this dump (src/prepared_stamp.h; what src/launch.c checks before it starts
+// the game).
 bool ready(const std::filesystem::path& root);
 // True when `save` holds game saves (a savedata folder with something in it).
 bool has_saves(const std::filesystem::path& save);

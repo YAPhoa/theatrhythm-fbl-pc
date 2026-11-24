@@ -50,6 +50,7 @@ if [[ ${1:-} == --test ]]; then
     run_test net tests/test_net.c "${compat[@]}" "${net[@]}"
     run_test kernel-files tests/test_kernel_files.c "${compat[@]}"
     run_test button-icons tests/test_button_icons.c
+    run_test prepared-stamp tests/test_prepared_stamp.c
     run_test memory tests/test_memory.c "${compat[@]}" "${memory[@]}"
     run_test memory-read-backing tests/test_memory_read_backing.c "${compat[@]}" "${memory[@]}"
     ninja -C out/gpu pad-test >/dev/null

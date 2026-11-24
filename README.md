@@ -126,13 +126,16 @@ Shader caches are kept in `~/.cache/theatrhythm-fbl`.
 
 ### Updating
 
-Unzip (on Linux, extract) the new release over the old folder, then run the setup once more (the
-game asks you to). Your folders, saves and settings are kept.
+Unzip (on Linux, extract) the new release over the old folder and start the game as usual: there is
+nothing else to do. The first start of a new release prepares the game again from your dump, in a
+few seconds and without asking, and then plays. The same happens when your dump changes (for
+example when you update it to 1.04), and with launchers that install updates for you. Your folders,
+saves and settings are kept.
 
 Setup also remembers your folders outside the release, in `%APPDATA%\Theatrhythm Final Bar Line\paths.ini`
 (Linux: `~/.config/theatrhythm-fbl/paths.ini`). A release unzipped into a new folder starts from
-them, so setup only needs **Install**. To use another save folder without running setup, set the
-environment variable `THEATRHYTHM_SAVE_DIR` to it; it wins over the one setup chose.
+them, so starting the game there sets it up too. To use another save folder without running setup,
+set the environment variable `THEATRHYTHM_SAVE_DIR` to it; it wins over the one setup chose.
 
 ## Adding DLC
 
