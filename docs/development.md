@@ -165,9 +165,10 @@ F4 end with 0; Ctrl+C on Windows and SIGTERM or SIGINT on Linux are not reported
 `Launcher: the game ended with exit code ...` and what the code means to the log, copies the log to
 `log/crash-<date>-<time>.log` (never deleted: players may delete them) and shows a message box
 naming that file. This
-also catches ends the runtime's fault handler never sees: fast fails (`0xc0000409`), `abort()`,
-heap corruption, a driver ending the process. `THEATRHYTHM_CRASH_WATCH=0` turns the watch off; the
-child runs with it set to 0.
+also catches ends the runtime's fault handler never sees: fast fails (`0xc0000409`), `abort()` on
+Linux, heap corruption, a driver ending the process. On Windows the runtime reports `abort()` (and
+so a C++ `std::terminate`) like a fault: a `Fault: abort()` line, the aborting thread's frames and
+exit code 3. `THEATRHYTHM_CRASH_WATCH=0` turns the watch off; the child runs with it set to 0.
 
 Preparing the game needs Python 3.10 or newer, using only its standard library; releases bundle
 python.org's embeddable Python in `prepare/python`. The CPU rewrite also needs `iced-x86`, which the
