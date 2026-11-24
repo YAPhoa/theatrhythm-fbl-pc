@@ -1005,6 +1005,10 @@ int main(int argc, char **argv) {
     theatrhythm_gpu_register_kernel();
 #ifdef _WIN32
     SYSTEM_INFO system_info; GetSystemInfo(&system_info); page_size = system_info.dwPageSize;
+    /* 64 KiB left for the handlers after a stack overflow (Windows keeps about a page), enough to
+     * print the fault report; guest threads ask for the same (runtime_thread.c, host_start). */
+    ULONG stack_guarantee = 64 << 10;
+    SetThreadStackGuarantee(&stack_guarantee);
     AddVectoredExceptionHandler(1, vectored_fault);
     SetUnhandledExceptionFilter(unhandled_fault);
     signal(SIGABRT, fatal_abort);

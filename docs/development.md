@@ -31,6 +31,9 @@ follows rbp wherever it finds no frame data. So the game's `_start` and every gu
 entered with rbp 0 (`runtime_enter_guest`, `enter_on_stack`), and `sceKernelGetModuleInfoForUnwind`
 reports host code as a module without frame data. The walk then ends at the host boundary instead
 of reading host locals as frames (issue #17: the start-up picture's path in the runner's `main`).
+On Windows the main thread and each guest thread keep 64 KiB for the handlers after a stack
+overflow (`SetThreadStackGuarantee`; Windows leaves about a page), so an overflow still gets its
+`Fault:` report.
 
 Guest code follows the SysV ABI, whose leaf functions keep locals in the 128 bytes below rsp (the
 red zone). Windows has no red zone: an exception's frame (CONTEXT plus the thread's live XSAVE

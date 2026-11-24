@@ -421,6 +421,10 @@ __asm__(".text\n.globl runtime_enter_guest\n" ENTER_GUEST_BEGIN
         " mov %rdi,%rax\n mov %rsi,%rdi\n mov %rdx,%rsi\n xor %ebp,%ebp\n call *%rax\n" ENTER_GUEST_END);
 static void *host_start(void *p) {
     GuestThread *t=p;
+#ifdef _WIN32
+    ULONG stack_guarantee=64<<10; /* room for the fault report after a stack overflow (probe.c) */
+    SetThreadStackGuarantee(&stack_guarantee);
+#endif
     runtime_orbis_fpu();
     attach(t);
     set_host_name(t->name);
