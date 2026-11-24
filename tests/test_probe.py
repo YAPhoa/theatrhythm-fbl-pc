@@ -48,6 +48,26 @@ class LoaderTests(unittest.TestCase):
                     self.assertEqual(r.returncode,1,r.stdout+r.stderr)
                     self.assertIn('content profile',r.stderr)
 
+    def test_param_sfo_with_wrapping_offsets_is_read_within_the_file(self):
+        # APP_VER's value offset wraps past 4 GiB back into the file and the last key has no NUL:
+        # both are skipped, TITLE_ID is still found.
+        keys = b'APP_VER\0TITLE_ID\0'
+        values = b'CUSA00001\0\0\0'
+        def entry(key_offset, length, offset):
+            return struct.pack('<HHIII', key_offset, 0x0204, length, length, offset)
+        table = entry(0, 0x20, 0xfffffff0) + entry(8, 10, 0) + entry(len(keys) + len(values), 4, 0)
+        keys_at = 20 + len(table)
+        sfo = (b'\0PSF' + struct.pack('<IIII', 0x101, keys_at, keys_at + len(keys), 3)
+               + table + keys + values + b'TITLE')
+        with tempfile.TemporaryDirectory() as tmp:
+            app0 = Path(tmp) / 'app0'
+            (app0 / 'sce_sys').mkdir(parents=True)
+            (app0 / 'sce_sys' / 'param.sfo').write_bytes(sfo)
+            r = self.run_image(package(b'\xff\x25\x02\0\0\0\x90\x90', [(8, 1, 0, 0)], ['fixture-import']),
+                               '--app0', str(app0), '--user', str(Path(tmp) / 'user'))
+        self.assertEqual(r.returncode, 20, r.stdout + r.stderr)
+        self.assertIn('Game: CUSA00001 version unknown', r.stdout)
+
     def run_image(self, data, *options):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'boot.bin'

@@ -92,6 +92,8 @@ list, text entry, trophy notices) and the shader-cache notes (`THEATRHYTHM_SHADE
 What the game and its dump hand the runtime is read within its size: libSceAjm's RIFF header of
 an AT9 stream (`parse_riff`) stops at the end of the input, however long a chunk claims to be, and
 skips the pad byte of an odd-sized chunk (`tests/test_mp3.c`, `ninja -C out/gpu mp3-test`).
+`param.sfo` entries count only when their value and their key's NUL are inside the file, with the
+offsets added in 64 bits (`sfo_value` in probe.c; `tests/test_probe.py`).
 
 ## Running from the source tree
 
