@@ -89,6 +89,10 @@ the default: `sceKernelIsNeoMode` returns 1, the video out is 3840x2160 and prob
 pixel's footprint in `post_process.frag`: no upscaler, TAA, motion vectors or post-process hooks. The only overlay is the PS4's system UI (save
 list, text entry, trophy notices) and the shader-cache notes (`THEATRHYTHM_SHADER_NOTES=1`).
 
+What the game and its dump hand the runtime is read within its size: libSceAjm's RIFF header of
+an AT9 stream (`parse_riff`) stops at the end of the input, however long a chunk claims to be, and
+skips the pad byte of an odd-sized chunk (`tests/test_mp3.c`, `ninja -C out/gpu mp3-test`).
+
 ## Running from the source tree
 
 Set `THEATRHYTHM_GAME_DIR` to your decrypted dump (or pass `--game DIR` each time); `run.py` stops

@@ -233,20 +233,25 @@ static uint32_t at9_frame(Instance *in, const unsigned char **input, uint64_t *i
     }
     return 0;
 }
+/* An AT9 file's RIFF header at the input: its fmt and fact chunks set the codec config and the
+ * gapless counts; the input then starts at the data chunk's payload. A header or chunk cut short
+ * by the end of the input consumes what there is (padding bytes of odd-sized chunks included). */
 static void parse_riff(Instance *in, const unsigned char **input, uint64_t *size) {
     const unsigned char *p=*input, *end=p+*size;
-    p+=12;
-    while (p+8<=end) {
+    p+=*size<12 ? *size : 12;
+    while ((uint64_t)(end-p)>=8) {
         uint32_t tag, length; memcpy(&tag,p,4); memcpy(&length,p+4,4); p+=8;
+        uint64_t left=(uint64_t)(end-p);
         if (tag==0x61746164) break;                                   /* "data" */
-        if (tag==0x20746d66 && length>=52 && p+52<=end) {             /* "fmt " */
+        if (tag==0x20746d66 && length>=52 && left>=52) {              /* "fmt " */
             memcpy(in->config,p+44,4); at9_reset(in);
-        } else if (tag==0x74636166 && length>=12 && p+12<=end) {      /* "fact" */
+        } else if (tag==0x74636166 && length>=12 && left>=12) {       /* "fact" */
             uint32_t total, delay; memcpy(&total,p,4); memcpy(&delay,p+4,4);
             in->gapless_init.total_samples=total; in->gapless_init.skip_samples=(uint16_t)delay;
             gapless_reset(in);
         }
-        p+=length;
+        uint64_t skip=(uint64_t)length+(length&1);
+        p+=skip<left ? skip : left;
     }
     *size-=(uint64_t)(p-*input); *input=p;
 }
@@ -380,6 +385,7 @@ static void run_job(Context *ctx, uint32_t id, Job *job) {
     if (job->input_count==1) input=job->inputs[0].address;
     else if (job->input_count>1) {
         joined=malloc(in_size ? in_size : 1);
+        if (!joined) { if (result) result->result=(int32_t)(RESULT_FATAL|RESULT_INVALID_PARAMETER); return; }
         uint64_t at=0;
         for (int i=0;i<job->input_count;++i) { memcpy(joined+at,job->inputs[i].address,job->inputs[i].size); at+=job->inputs[i].size; }
         input=joined;

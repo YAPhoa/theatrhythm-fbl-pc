@@ -1,7 +1,7 @@
 /* MP3 through libSceAjm: header/gapless parsing and decoding jobs (tests/data/sine.mp3:
  * 0.5 s of 440 Hz, 44.1 kHz stereo, made with ffmpeg -c:a libmp3lame -id3v2_version 0; the
  * encoder field of its tag frame is renamed from "Lavc63.1" to "LAME3.10", the only one the
- * SDK reads). */
+ * SDK reads). Also an AT9 file's RIFF header cut short or with a chunk longer than the input. */
 #undef NDEBUG /* the checks are asserts; release builds define NDEBUG */
 #include "../src/runtime_ajm.c"
 #include <assert.h>
@@ -79,6 +79,22 @@ int main(int argc, char **argv) {
     assert(r & RESULT_CODEC_ERROR);
 
     assert(ajm_instance_destroy(ctx,instance)==0 && ajm_finalize(ctx)==0);
+
+    /* RIFF headers: a cut-short header is consumed, a chunk longer than the input stops at its
+     * end, odd-sized chunks are padded and the input starts at the data chunk's payload. */
+    Instance riff={0};
+    const unsigned char *at=(const unsigned char *)"RIFF\x10\0\0\0"; uint64_t left=8;
+    parse_riff(&riff,&at,&left);
+    assert(left==0);
+    static const unsigned char too_long[]="RIFF\0\0\0\0WAVELIST\0\xff\xff\xff" "abcd";
+    at=too_long; left=sizeof(too_long)-1;
+    parse_riff(&riff,&at,&left);
+    assert(left==0 && at==too_long+sizeof(too_long)-1);
+    static const unsigned char padded[]="RIFF\0\0\0\0WAVEjunk\3\0\0\0xyz_fact\x0c\0\0\0\x34\x12\0\0\x10\0\0\0\0\0\0\0data\4\0\0\0pcm!";
+    at=padded; left=sizeof(padded)-1;
+    parse_riff(&riff,&at,&left);
+    assert(left==4 && !memcmp(at,"pcm!",4));
+    assert(riff.gapless_init.total_samples==0x1234 && riff.gapless_init.skip_samples==16 && riff.gapless.total_samples==0x1234);
     puts("mp3 test: ok");
     return 0;
 }
