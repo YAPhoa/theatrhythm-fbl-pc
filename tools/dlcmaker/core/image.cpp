@@ -12,6 +12,11 @@
 #pragma GCC diagnostic ignored "-Wunused-function"
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_NO_STDIO
+// The project's pictures are PNG or JPEG (WebP goes through ffmpeg, which hands back a PNG): stb's
+// other decoders stay out, and a picture over 16384 pixels on a side is refused before it is decoded.
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
+#define STBI_MAX_DIMENSIONS 16384
 #define STBI_FAILURE_USERMSG
 #include "stb_image.h"
 #define STB_IMAGE_WRITE_IMPLEMENTATION

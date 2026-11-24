@@ -75,6 +75,9 @@ Before you start: your decrypted game dump and the game's save folder (both set 
 The template songs are 481 (battle), 508 (event) and 482 (field); `template` in `song.json` picks
 another.
 
+Pictures (jacket, thumbnail, logos) are PNG, JPEG or WebP (WebP needs ffmpeg), at most 16384 pixels
+on a side.
+
 ## Using the app (recommended)
 
 The easiest way is the app, a separate download on the
