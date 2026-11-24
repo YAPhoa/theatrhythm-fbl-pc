@@ -791,10 +791,18 @@ static const char *trophy_state_path(void) {
     return path;
 }
 static uint32_t trp_be32(const unsigned char *p) { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
+/* Writes the unlocked set to trophies.dat.tmp, then moves it over trophies.dat: a crash or a full
+ * disk keeps the last complete file. */
 static void trophy_save(void) {
-    FILE *f=fopen(trophy_state_path(),"wb");
-    if (!f) { printf("Runtime: trophies: cannot write %s\n",trophy_state_path()); return; }
-    fwrite(trophy_flags,sizeof(trophy_flags),1,f); fclose(f);
+    char temp[520];
+    snprintf(temp,sizeof(temp),"%s.tmp",trophy_state_path());
+    FILE *f=fopen(temp,"wb");
+    int ok=f && fwrite(trophy_flags,sizeof(trophy_flags),1,f)==1;
+    if (f && fclose(f)) ok=0;
+    if (!ok || runtime_replace_file(temp,trophy_state_path())) {
+        printf("Runtime: trophies: cannot write %s\n",trophy_state_path());
+        remove(temp);
+    }
 }
 /* The whole trophy00.trp stays in memory (about 3 MB): trophy_icon() finds the PNG of a trophy. */
 static int trophy_ids[TROPHY_MAX]; /* ids of the icons in the TRP, ascending */

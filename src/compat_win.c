@@ -165,6 +165,12 @@ int compat_remove_tree(const char *path) {
     return result;
 }
 
+int compat_replace_file(const char *from, const char *to) {
+    if (MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) return 0;
+    errno = compat_errno_from_win32(GetLastError());
+    return -1;
+}
+
 int compat_cpu_times(int who, int64_t *user_us, int64_t *kernel_us) {
     FILETIME created, exited, kernel, user;
     BOOL ok = who ? GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user)

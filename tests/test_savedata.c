@@ -95,6 +95,25 @@ int main(void) {
     CheckBackup missing={.user=1,.dir=&autosave};
     assert(save_check_backup(&missing)==ERR_NOT_FOUND);
 
+    /* A new backup replaces the old one whole; a copy that fails (no metadata folder) keeps the
+     * old one, and a backup a crash left set aside mid-swap is found again. */
+    char side[720], meta_dir[700], keep[720];
+    snprintf(path,sizeof(path),"%s/SAVE0001/later.bin",base); touch(path,1800);
+    assert(save_backup(&request)==0);
+    snprintf(side,sizeof(side),"%s/.SAVE0001.sce_backup.new",base); assert(stat(side,&st));
+    snprintf(side,sizeof(side),"%s/.SAVE0001.sce_backup.old",base); assert(stat(side,&st));
+    snprintf(path,sizeof(path),"%s/SAVE0001.sce_backup/data/later.bin",base); assert(!stat(path,&st));
+    snprintf(meta_dir,sizeof(meta_dir),"%s/SAVE0001.sce_sys",base);
+    snprintf(keep,sizeof(keep),"%s/SAVE0001.sce_sys.keep",base);
+    assert(!rename(meta_dir,keep));
+    assert(save_backup(&request)==ERR_INTERNAL);
+    assert(!rename(keep,meta_dir));
+    assert(save_check_backup(&check)==0 && !strcmp(checked.title,"Chapter 1"));
+    snprintf(path,sizeof(path),"%s/SAVE0001.sce_backup",base);
+    assert(!rename(path,side));
+    assert(save_check_backup(&check)==0 && !stat(path,&st) && stat(side,&st));
+    assert(save_event(NULL,&event)==0 && event.type==2 && save_event(NULL,&event)==ERR_NOT_FOUND);
+
     /* A mounted save: busy for backups; its blocks, params and icon; unmounting with a backup. */
     Mount2 m2={.user=1,.dir=&manual,.blocks=100,.mode=0};
     assert(save_mount2(&m2,&result)==0 && save_backup(&request)==ERR_BUSY);

@@ -452,7 +452,8 @@ static ABI int32_t memory_set2(const MemorySet2 *set) {
 
 /* ---- Backups (shadPS4 save_backup.cpp), done at once on the calling thread ----
  * A backup copies the save's files to <dir>.sce_backup/data and its param.bin/icon0.png to
- * <dir>.sce_backup/sce_sys; each completed one queues an event for sceSaveDataGetEventResult
+ * <dir>.sce_backup/sce_sys, by way of .<dir>.sce_backup.new (the old backup stays until the copy is
+ * complete; .<dir>.sce_backup.old holds it during the swap); each completed one queues an event for sceSaveDataGetEventResult
  * (1 umount backup, 2 backup, 3 memory sync) and sets the progress to 1. A mounted save is BUSY. */
 typedef struct { uint32_t type; int32_t error, user; uint8_t pad[4]; TitleId title; DirName dir; uint8_t reserved[40]; } Event;
 _Static_assert(sizeof(Event)==104,"OrbisSaveDataEvent layout");
@@ -517,15 +518,39 @@ static int is_mounted(const char *host) {
     return found;
 }
 static int backups_running; /* make_backup copying (sceSaveDataUmountWithBackup frees the slot first) */
+/* <base>/.<dir>.sce_backup<suffix>: a backup's side folders. The leading dot keeps them out of
+ * save_search. */
+static void backup_side(const char *backup, const char *suffix, char out[720]) {
+    const char *name=strrchr(backup,'/');
+    size_t base=name ? (size_t)(name-backup)+1 : 0;
+    snprintf(out,720,"%.*s.%s%s",(int)base,backup,backup+base,suffix);
+}
+/* A backup a crash left set aside (make_backup stops between its two renames) is put back. */
+static void backup_recover(const char *backup) {
+    char old[720]; struct stat st;
+    backup_side(backup,".old",old);
+    if (stat(backup,&st) && !stat(old,&st)) rename(old,backup);
+}
+/* The save's files and metadata copied into a new folder, which then takes the old backup's
+ * place: a failed copy or a crash keeps the last complete backup. */
 static int32_t make_backup(const char *host, const char *meta, const char *backup) {
-    char data[720], sys[720];
-    snprintf(data,sizeof(data),"%s/data",backup);
-    snprintf(sys,sizeof(sys),"%s/sce_sys",backup);
+    char fresh[720], old[720], data[740], sys[740];
+    backup_side(backup,".new",fresh);
+    backup_side(backup,".old",old);
+    snprintf(data,sizeof(data),"%s/data",fresh);
+    snprintf(sys,sizeof(sys),"%s/sce_sys",fresh);
     __atomic_add_fetch(&backups_running,1,__ATOMIC_ACQ_REL);
-    remove_tree(backup);
+    backup_recover(backup);
+    remove_tree(fresh); remove_tree(old);
     int32_t r=0;
-    if (copy_tree(host,data,0) || copy_tree(meta,sys,0)) { remove_tree(backup); r=ERR_INTERNAL; }
-    else ++backups_done;
+    struct stat st;
+    if (copy_tree(host,data,0) || copy_tree(meta,sys,0)) { remove_tree(fresh); r=ERR_INTERNAL; }
+    else {
+        int had=!stat(backup,&st);
+        if (had && rename(backup,old)) remove_tree(backup); /* held open: fall back to replacing it */
+        if (rename(fresh,backup)) { if (had) rename(old,backup); remove_tree(fresh); r=ERR_INTERNAL; }
+        else { remove_tree(old); ++backups_done; }
+    }
     __atomic_sub_fetch(&backups_running,1,__ATOMIC_ACQ_REL);
     return r;
 }
@@ -565,6 +590,7 @@ static ABI int32_t save_check_backup(const CheckBackup *c) {
     char host[640], meta[680], backup[680], path[720];
     if (!c || save_paths(c->user,c->title ? c->title->data : NULL,c->dir,host,meta,backup)) return ERR_PARAMETER;
     if (is_mounted(host)) return ERR_BUSY;
+    backup_recover(backup);
     struct stat st;
     if (stat(backup,&st)) return ERR_NOT_FOUND;
     snprintf(path,sizeof(path),"%s/sce_sys",backup);
@@ -579,6 +605,7 @@ static ABI int32_t save_restore_backup(const RestoreBackup *r) {
     char host[640], meta[680], backup[680], data[720], sys[720];
     if (!r || save_paths(r->user,r->title ? r->title->data : NULL,r->dir,host,meta,backup)) return ERR_PARAMETER;
     if (is_mounted(host)) return ERR_BUSY;
+    backup_recover(backup);
     struct stat st;
     if (stat(backup,&st)) return ERR_NOT_FOUND;
     snprintf(data,sizeof(data),"%s/data",backup);

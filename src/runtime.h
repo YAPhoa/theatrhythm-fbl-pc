@@ -8,9 +8,13 @@
  * (gpu/shim/theatrhythm_toggles.h uses the same buffer type). */
 typedef theatrhythm_jmp_buf sigjmp_buf;
 #define sigsetjmp(buffer, save) theatrhythm_setjmp(buffer)
+#define runtime_replace_file compat_replace_file
 #else
 #include <setjmp.h>
+#define runtime_replace_file rename
 #endif
+/* runtime_replace_file(from, to): moves a finished temp file over the only copy, so a crash leaves
+ * the old file or the new one, never a cut-short one: 0, or -1 and errno. */
 /* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
 extern __thread sigjmp_buf *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */

@@ -96,6 +96,11 @@ skips the pad byte of an odd-sized chunk (`tests/test_mp3.c`, `ninja -C out/gpu 
 offsets added in 64 bits (`sfo_value` in probe.c; `tests/test_probe.py`).
 A guest path with a `..` component is refused whether it is written with `/` or with `\`, which
 Windows reads as a separator in the host path (`translate` in runtime_file.c; `tests/test_file_paths.c`).
+Files that are the only copy are never rewritten in place: `trophies.dat` is written to
+`trophies.dat.tmp` and moved over it (`runtime_replace_file`: `MoveFileExA` with
+`MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` on Windows, `rename` on Linux), and a save
+backup is copied into `.<dir>.sce_backup.new` before it takes the old backup's place, so a failed copy
+or a crash keeps the last complete one (`make_backup`; `tests/test_services.c`, `tests/test_savedata.c`).
 
 ## Running from the source tree
 
