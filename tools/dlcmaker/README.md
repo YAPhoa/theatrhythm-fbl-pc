@@ -174,7 +174,8 @@ Files are found by name: `audio.*`, `movie.*`, `jacket.*`, `thumbnail.*`, `logo.
 `logo_wide.*`. Without `audio.*` or `movie.*`, the first file with a matching extension is used.
 `song.json` can also name each file. Song folders are read in name order, unless `dlc.json` lists
 `songs`. A named file or song folder must be inside the folder of the `.json` that names it: a
-drive, a leading `/` or a `..` that climbs above that folder is a Check error.
+drive, a leading `/` or a `..` that climbs above that folder is a Check error. So is a `.json` file nested
+more than 256 levels deep.
 
 `dlc.lock.json` holds the pack, series and song numbers given out on the first build. Keeping it
 keeps your scores and saves attached to the songs across rebuilds. A damaged `dlc.lock.json` is a Check error

@@ -276,6 +276,15 @@ class ProjectFileTests(unittest.TestCase):
         self.assertEqual(code, 1, out + err)  # an error, not a crash
         return out
 
+    def test_deeply_nested_json_is_an_error(self):
+        (self.dlc / 'dlc.json').write_text('{"songs": ' + '[' * 100000 + ']' * 100000 + '}')
+        self.assertIn('Ex/dlc.json: cannot read: Nested deeper than 256 levels', self.check())
+
+    def test_json_nested_to_the_limit_is_read(self):
+        self.config['extra'] = json.loads('[' * 255 + ']' * 255)
+        (self.dlc / 'dlc.json').write_text(json.dumps(self.config))
+        self.assertNotIn('dlc.json: cannot read', self.check())
+
     def test_broken_lock_file_names_itself(self):
         (self.dlc / 'dlc.lock.json').write_text('{"package": 1')
         self.assertIn('Ex/dlc.lock.json: cannot read: Expecting', self.check())

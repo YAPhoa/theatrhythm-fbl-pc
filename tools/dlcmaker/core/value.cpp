@@ -467,6 +467,15 @@ namespace {
 struct JsonParser {
     std::string_view s;
     size_t p = 0;
+    // Objects and arrays open around the value being read: a file nested deeper is refused before
+    // the recursion runs out of stack.
+    static constexpr int kMaxDepth = 256;
+    int depth = 0;
+    struct Nest {
+        int& depth;
+        bool open;
+        ~Nest() { depth -= open; }
+    };
 
     [[noreturn]] void fail(const std::string& what, size_t at) const {
         // json.JSONDecodeError: positions count characters, lines and columns from 1.
@@ -556,6 +565,11 @@ struct JsonParser {
         if (p >= s.size())
             fail("Expecting value", p);
         char c = s[p];
+        bool open = c == '{' || c == '[';
+        if (open && depth == kMaxDepth)
+            fail("Nested deeper than " + std::to_string(kMaxDepth) + " levels at", p);
+        depth += open;
+        Nest nest{depth, open};
         if (c == '"') {
             ++p;
             return Value(string());
