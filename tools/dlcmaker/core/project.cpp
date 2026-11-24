@@ -302,7 +302,14 @@ Dlc::Dlc(const fs::path& f, Issues& issues) : folder(f) {
     if (!truthy(series_base) && logo.empty())
         issues.warn(where, "no logo.png: the series shows base series " + std::to_string(logo_from) + "'s logo");
     lock_path = folder / "dlc.lock.json";
-    lock = is_file(lock_path) ? json_parse(read_text(lock_path)) : Value::of_map();
+    if (is_file(lock_path)) { // the IDs of an earlier build; a broken one is an error, not a fresh start
+        Issues lock_issues;
+        lock = read_json(lock_path, lock_issues);
+        for (const auto& i : lock_issues.items)
+            issues.error(i.where, i.msg + " (delete it to pick new IDs)");
+    } else {
+        lock = Value::of_map();
+    }
     std::vector<fs::path> dirs;
     for (const fs::path& p : sorted_dir(folder))
         if (is_dir(p) && is_file(p / "song.json"))

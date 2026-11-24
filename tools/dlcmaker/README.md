@@ -176,7 +176,8 @@ Files are found by name: `audio.*`, `movie.*`, `jacket.*`, `thumbnail.*`, `logo.
 `songs`.
 
 `dlc.lock.json` holds the pack, series and song numbers given out on the first build. Keeping it
-keeps your scores and saves attached to the songs across rebuilds.
+keeps your scores and saves attached to the songs across rebuilds. A damaged `dlc.lock.json` is a Check error
+that names it; delete it only if you accept new numbers.
 
 ### dlc.json
 
@@ -432,6 +433,8 @@ dump at build time, so nothing is copied into the project. Set `stage` to the ga
 - **Install says the game is running.** Close it first; the game keeps the pack files open.
 - **A field stage shows only a grid.** That is Auto mode's look. Use Play to see the field.
 - **Check is slow the first time.** It decodes the audio once, into `.dlcmaker-cache/`.
+- **A `.part` file is left in a folder.** A write was cut short (a crash or a full disk): the file
+  it was replacing is still the old, complete one. Delete the `.part` file.
 
 ## How a build maps onto the game
 
