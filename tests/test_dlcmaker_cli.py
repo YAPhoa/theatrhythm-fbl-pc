@@ -253,6 +253,7 @@ class CommandLineTests(unittest.TestCase):
 
 
 @unittest.skipUnless(EXE.is_file(), 'needs the DLC maker (bash tools/dlcmaker/app/build.sh)')
+@unittest.skipUnless(FFMPEG, 'needs ffmpeg (THEATRHYTHM_FFMPEG, out/dlcmaker-ffmpeg or PATH): check looks for it first')
 class ProjectFileTests(unittest.TestCase):
     """Broken or hostile project files: each is a clear error of `check`, never a crash, and the
     files the DLC maker writes are replaced whole."""
@@ -268,7 +269,8 @@ class ProjectFileTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_exe(self, *args):
-        p = subprocess.run([str(EXE), *map(str, args)], capture_output=True, timeout=60)
+        p = subprocess.run([str(EXE), *map(str, args)], capture_output=True, timeout=60,
+                           env={**os.environ, 'THEATRHYTHM_FFMPEG': FFMPEG})
         return p.returncode, p.stdout.decode('utf-8').replace('\\', '/'), p.stderr.decode('utf-8')
 
     def check(self):
