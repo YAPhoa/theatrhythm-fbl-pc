@@ -54,6 +54,8 @@ if [[ ${1:-} == --test ]]; then
     run_test memory-read-backing tests/test_memory_read_backing.c "${compat[@]}" "${memory[@]}"
     ninja -C out/gpu pad-test >/dev/null
     "out/gpu/pad-test$exe"
+    ninja -C out/gpu hle-thread-test >/dev/null
+    "out/gpu/hle-thread-test$exe"
     if [[ -n $exe ]]; then
         ninja -C out/gpu redzone-test >/dev/null
         out/gpu/redzone-test.exe
